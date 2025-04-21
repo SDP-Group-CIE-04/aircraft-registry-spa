@@ -4,6 +4,8 @@
 ### Prerequisites
 - node version >= 8.15.1
 - npm version >= 5
+- a server to pull from
+  
 
 ### Steps
 Install all the dependencies.
