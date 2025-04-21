@@ -8,7 +8,7 @@
 ### Steps
 Install all the dependencies.
 
-`npm install` | `npm i`
+`npm install --legacy-peer-deps`
 
 Create an environment file at the root of the project that will contain sensative info.
 
