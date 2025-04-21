@@ -16,7 +16,7 @@ const ngrok =
 const { resolve } = require('path');
 const app = express();
 
-const API = 'https://aircraftregistry.herokuapp.com';
+const API = 'http://127.0.0.1:8000/';
 
 // If you need a backend, e.g. an API, add your custom backend-specific middleware here
 app.use(bodyParser.json()); // for parsing application/json
