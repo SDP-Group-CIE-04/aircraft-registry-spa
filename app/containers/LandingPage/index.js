@@ -101,6 +101,18 @@ const useStyles = makeStyles(theme => ({
   paper: {
     padding: 40,
   },
+  buttonContainer: {
+    display: 'flex',
+    gap: '20px',
+    marginTop: '20px',
+  },
+  actionButton: {
+    backgroundColor: '#2196F3',
+    color: 'white',
+    '&:hover': {
+      backgroundColor: '#1976D2',
+    },
+  },
 }));
 
 const key = 'landing';
@@ -121,7 +133,7 @@ export function LandingPage({
   const [searchString, setSearchString] = React.useState('');
   const initCollection = collectionName
     ? collectionTypes.find(col => col.value === collectionName)
-    : collectionType[0];
+    : collectionTypes[0];
   const [collectionType, setCollectionType] = React.useState(initCollection);
   const open = Boolean(anchorEl);
   const classes = useStyles();
@@ -258,6 +270,24 @@ export function LandingPage({
                       }
                     }}
                   />
+                  <Box className={classes.buttonContainer}>
+                    <Button
+                      variant="contained"
+                      className={classes.actionButton}
+                      onClick={() =>
+                        getCollection(collectionType.value, searchString)
+                      }
+                    >
+                      SEARCH
+                    </Button>
+                    <Button
+                      variant="contained"
+                      className={classes.actionButton}
+                      onClick={() => props.history.push('/register')}
+                    >
+                      REGISTER NOW
+                    </Button>
+                  </Box>
                 </Grid>
               )}
             </Grid>
