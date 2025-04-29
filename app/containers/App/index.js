@@ -14,6 +14,7 @@ import { Switch, Route } from 'react-router-dom';
 import LandingPage from '../LandingPage/Loadable';
 import DetailsPage from '../DetailsPage/Loadable';
 import NotFoundPage from '../NotFoundPage/Loadable';
+import RegistrationPage from '../RegistrationPage/Loadable';
 
 import { useAuth0 } from '../Auth';
 
@@ -49,6 +50,7 @@ export default function App() {
       ) : (
         <Switch>
           <Route exact path="/" component={LandingPage} />
+          <Route exact path="/register" component={RegistrationPage} />
           <Route
             exact
             path="/operators/:uuid"
