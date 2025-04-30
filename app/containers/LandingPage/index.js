@@ -303,7 +303,13 @@ export function LandingPage({
                 <Typography>{fetchFailReason}</Typography>
               </Paper>
             )}
-            <Grid container direction="row" justify="center" spacing={3}>
+            <Grid
+              container
+              direction="row"
+              justify="center"
+              spacing={3}
+              style={{ marginTop: '5px' }} // Added 5px margin to drop the search results down
+            >
               {collection &&
                 collection.length &&
                 collection.map(item => (
