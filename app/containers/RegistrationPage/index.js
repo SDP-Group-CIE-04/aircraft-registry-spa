@@ -12,9 +12,11 @@ import {
   FormControlLabel,
   Checkbox,
   CircularProgress,
+  Snackbar,
 } from '@material-ui/core';
 import bgImage from '../../images/blurBg.jpg';
 import { OPERATOR_TYPES, COUNTRIES, INITIAL_ADDRESS } from './constants';
+import * as apiService from '../../services/apiService';
 
 const useStyles = makeStyles(() => ({
   root: {
@@ -110,6 +112,12 @@ export default function RegistrationPage() {
   const [entityType, setEntityType] = useState('operator');
   const [operators, setOperators] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [notification, setNotification] = useState({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
 
   const [formData, setFormData] = useState({
     // Default operator data structure matching the backend test code
@@ -179,68 +187,142 @@ export default function RegistrationPage() {
   // Fetch operators for the dropdown
   useEffect(() => {
     if (entityType === 'pilot' || entityType === 'contact') {
-      // This would fetch operators from your API
-      setLoading(true);
-      fetch('http://localhost:8000/api/v1/operators')
-        .then(response => response.json())
-        .then(data => {
-          setOperators(data);
-          setLoading(false);
-        })
-        .catch(error => {
-          console.error('Error fetching operators:', error);
-          // Fallback to dummy data
-          setOperators([
-            {
-              id: '566d63bb-cb1c-42dc-9a51-baef0d0a8d04',
-              company_name: 'Electric Inspection',
-            },
-            {
-              id: '41174c3f-e86c-4e5a-a629-32d4d9da6011',
-              company_name: 'A.J. August Photography',
-            },
-          ]);
-          setLoading(false);
-        });
+      fetchOperators();
     }
   }, [entityType]);
 
-  const handleSubmit = e => {
-    e.preventDefault();
-
-    // Prepare data for API based on entity type
-    let apiData = {};
-    let apiEndpoint = '';
-
-    if (entityType === 'operator') {
-      apiData = { ...formData };
-      apiEndpoint = 'http://localhost:8000/api/v1/operators';
-    } else if (entityType === 'pilot') {
-      apiData = { ...pilotData };
-      apiEndpoint = 'http://localhost:8000/api/v1/pilots';
-    } else if (entityType === 'contact') {
-      apiData = { ...contactData };
-      apiEndpoint = 'http://localhost:8000/api/v1/contacts';
-    } else if (entityType === 'aircraft') {
-      apiData = { ...aircraftData };
-      apiEndpoint = 'http://localhost:8000/api/v1/aircraft';
+  const fetchOperators = async () => {
+    setLoading(true);
+    try {
+      const data = await apiService.getOperators();
+      setOperators(data);
+    } catch (error) {
+      console.error('Error fetching operators:', error);
+      // Fallback to dummy data
+      setOperators([
+        {
+          id: '566d63bb-cb1c-42dc-9a51-baef0d0a8d04',
+          company_name: 'Electric Inspection',
+        },
+        {
+          id: '41174c3f-e86c-4e5a-a629-32d4d9da6011',
+          company_name: 'A.J. August Photography',
+        },
+      ]);
+      showNotification(`Error loading operators: ${error.message}`, 'error');
+    } finally {
+      setLoading(false);
     }
+  };
 
-    console.log('Form submitted to:', apiEndpoint);
-    console.log('Data:', apiData);
+  const showNotification = (message, severity = 'success') => {
+    setNotification({
+      open: true,
+      message,
+      severity,
+    });
+  };
 
-    // Uncomment to actually send the data to your backend
-    // fetch(apiEndpoint, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${getAuthToken()}`
-    //   },
-    //   body: JSON.stringify(apiData)
-    // })
-    //   .then(response => response.json())
-    //   .then(data => console.log('Success:', data))
-    //   .catch(error => console.error('Error:', error));
+  const handleCloseNotification = () => {
+    setNotification({
+      ...notification,
+      open: false,
+    });
+  };
+
+  const resetForm = () => {
+    if (entityType === 'operator') {
+      setFormData({
+        company_name: '',
+        website: '',
+        email: '',
+        phone_number: '',
+        operator_type: 2,
+        vat_number: '',
+        insurance_number: '',
+        company_number: '',
+        country: 'AE',
+        address: { ...INITIAL_ADDRESS },
+      });
+    } else if (entityType === 'pilot') {
+      setPilotData({
+        operator: '',
+        is_active: true,
+        tests: { name: null },
+        person: {
+          first_name: '',
+          middle_name: '',
+          last_name: '',
+          email: '',
+          phone_number: '',
+          date_of_birth: null,
+        },
+      });
+    } else if (entityType === 'contact') {
+      setContactData({
+        operator: '',
+        person: {
+          first_name: '',
+          middle_name: '',
+          last_name: '',
+          email: '',
+          phone_number: '',
+          date_of_birth: null,
+        },
+        role_type: 0,
+      });
+    } else if (entityType === 'aircraft') {
+      setAircraftData({
+        mass: 0,
+        manufacturer: '',
+        model: '',
+        esn: '',
+        maci_number: '',
+        status: 1,
+        registration_mark: '',
+        sub_category: 7,
+        type_certificate: {
+          type_certificate_id: '',
+          type_certificate_issuing_country: '',
+          type_certificate_holder: '',
+          type_certificate_holder_country: '',
+        },
+        master_series: '',
+        series: '',
+        popular_name: '',
+        icao_aircraft_type_designator: '',
+        max_certified_takeoff_weight: 0,
+      });
+    }
+  };
+
+  const handleSubmit = async e => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    try {
+      switch (entityType) {
+        case 'operator':
+          await apiService.registerOperator(formData);
+          break;
+        case 'pilot':
+          await apiService.registerPilot(pilotData);
+          break;
+        case 'contact':
+          await apiService.registerContact(contactData);
+          break;
+        case 'aircraft':
+          await apiService.registerAircraft(aircraftData);
+          break;
+        default:
+          throw new Error('Unknown entity type');
+      }
+      resetForm();
+    } catch (error) {
+      showNotification(`Registration failed: ${error.message}`, 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleInputChange = e => {
@@ -268,7 +350,6 @@ export default function RegistrationPage() {
   };
 
   const handlePersonChange = (e, personType) => {
-    console.info('Updating person data:', personType);
     if (personType === 'pilot') {
       setPilotData({
         ...pilotData,
@@ -1110,6 +1191,7 @@ export default function RegistrationPage() {
               onChange={e => setEntityType(e.target.value)}
               variant="outlined"
               fullWidth
+              disabled={submitting}
             >
               <MenuItem value="operator">Operator</MenuItem>
               <MenuItem value="aircraft">Aircraft</MenuItem>
@@ -1124,12 +1206,25 @@ export default function RegistrationPage() {
               variant="contained"
               className={classes.actionButton}
               fullWidth
+              disabled={submitting}
             >
-              Register
+              {submitting ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                'Register'
+              )}
             </Button>
           </form>
         </Paper>
       </Box>
+
+      {/* Notification Snackbar */}
+      <Snackbar
+        open={notification.open}
+        autoHideDuration={6000}
+        onClose={handleCloseNotification}
+        message={notification.message}
+      />
     </Box>
   );
 }
