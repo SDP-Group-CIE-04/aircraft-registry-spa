@@ -147,6 +147,7 @@ export default function RegistrationPage() {
       phone_number: '',
       date_of_birth: null,
     },
+    address: { ...INITIAL_ADDRESS },
   });
 
   const [contactData, setContactData] = useState({
@@ -159,10 +160,12 @@ export default function RegistrationPage() {
       phone_number: '',
       date_of_birth: null,
     },
-    role_type: 0,
+    role_type: 1,
+    address: { ...INITIAL_ADDRESS },
   });
 
   const [aircraftData, setAircraftData] = useState({
+    operator: '',
     mass: 0,
     manufacturer: '',
     model: '',
@@ -186,7 +189,7 @@ export default function RegistrationPage() {
 
   // Fetch operators for the dropdown
   useEffect(() => {
-    if (entityType === 'pilot' || entityType === 'contact') {
+    if (entityType === 'pilot' || entityType === 'contact' || entityType === 'aircraft') {
       fetchOperators();
     }
   }, [entityType]);
@@ -257,6 +260,7 @@ export default function RegistrationPage() {
           phone_number: '',
           date_of_birth: null,
         },
+        address: { ...INITIAL_ADDRESS },
       });
     } else if (entityType === 'contact') {
       setContactData({
@@ -269,10 +273,12 @@ export default function RegistrationPage() {
           phone_number: '',
           date_of_birth: null,
         },
-        role_type: 0,
+        role_type: 1,
+        address: { ...INITIAL_ADDRESS },
       });
     } else if (entityType === 'aircraft') {
       setAircraftData({
+        operator: '',
         mass: 0,
         manufacturer: '',
         model: '',
@@ -387,6 +393,26 @@ export default function RegistrationPage() {
     });
   };
 
+  const handlePilotAddressChange = e => {
+    setPilotData({
+      ...pilotData,
+      address: {
+        ...pilotData.address,
+        [e.target.name]: e.target.value,
+      },
+    });
+  };
+
+  const handleContactAddressChange = e => {
+    setContactData({
+      ...contactData,
+      address: {
+        ...contactData.address,
+        [e.target.name]: e.target.value,
+      },
+    });
+  };
+
   const handleCertificateChange = e => {
     setAircraftData({
       ...aircraftData,
@@ -421,6 +447,34 @@ export default function RegistrationPage() {
 
   const renderAircraftFields = () => (
     <>
+      {/* Operator Selection */}
+      <Typography variant="h6" className={classes.sectionTitle}>
+        Operator Information
+      </Typography>
+      {loading ? (
+        <Box display="flex" justifyContent="center" my={2}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <TextField
+          className={classes.textField}
+          select
+          label="Select Operator"
+          variant="outlined"
+          fullWidth
+          name="operator"
+          value={aircraftData.operator}
+          onChange={handleAircraftChange}
+          required
+          margin="normal"
+        >
+          {operators.map(operator => (
+            <MenuItem key={operator.id} value={operator.id}>
+              {operator.company_name}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
       {/* Basic Aircraft Information */}
       <Typography variant="h6" className={classes.sectionTitle}>
         Basic Aircraft Information
@@ -824,6 +878,90 @@ export default function RegistrationPage() {
           margin="normal"
         />
       </Box>
+
+      {/* Address Information */}
+      <Typography variant="h6" className={classes.sectionTitle}>
+        Contact Address
+      </Typography>
+      <Box className={classes.personSection}>
+        <TextField
+          className={classes.textField}
+          label="Address Line 1"
+          variant="outlined"
+          fullWidth
+          name="address_line_1"
+          value={contactData.address.address_line_1}
+          onChange={handleContactAddressChange}
+          required
+          margin="normal"
+        />
+        <TextField
+          className={classes.textField}
+          label="Address Line 2"
+          variant="outlined"
+          fullWidth
+          name="address_line_2"
+          value={contactData.address.address_line_2}
+          onChange={handleContactAddressChange}
+          margin="normal"
+        />
+        <TextField
+          className={classes.textField}
+          label="Address Line 3"
+          variant="outlined"
+          fullWidth
+          name="address_line_3"
+          value={contactData.address.address_line_3}
+          onChange={handleContactAddressChange}
+          margin="normal"
+        />
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              className={classes.textField}
+              label="City"
+              variant="outlined"
+              fullWidth
+              name="city"
+              value={contactData.address.city}
+              onChange={handleContactAddressChange}
+              required
+              margin="normal"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              className={classes.textField}
+              label="Postal Code"
+              variant="outlined"
+              fullWidth
+              name="postcode"
+              value={contactData.address.postcode}
+              onChange={handleContactAddressChange}
+              required
+              margin="normal"
+            />
+          </Grid>
+        </Grid>
+        <TextField
+          className={classes.textField}
+          select
+          label="Country"
+          variant="outlined"
+          fullWidth
+          name="country"
+          value={contactData.address.country}
+          onChange={handleContactAddressChange}
+          required
+          margin="normal"
+        >
+          {COUNTRIES.map(option => (
+            <MenuItem key={option.code} value={option.code}>
+              {option.name}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Box>
     </>
   );
 
@@ -963,6 +1101,90 @@ export default function RegistrationPage() {
       <Typography variant="body2" color="textSecondary">
         Tests information will be added by admin after registration
       </Typography>
+
+      {/* Address Information */}
+      <Typography variant="h6" className={classes.sectionTitle}>
+        Pilot Address
+      </Typography>
+      <Box className={classes.personSection}>
+        <TextField
+          className={classes.textField}
+          label="Address Line 1"
+          variant="outlined"
+          fullWidth
+          name="address_line_1"
+          value={pilotData.address.address_line_1}
+          onChange={handlePilotAddressChange}
+          required
+          margin="normal"
+        />
+        <TextField
+          className={classes.textField}
+          label="Address Line 2"
+          variant="outlined"
+          fullWidth
+          name="address_line_2"
+          value={pilotData.address.address_line_2}
+          onChange={handlePilotAddressChange}
+          margin="normal"
+        />
+        <TextField
+          className={classes.textField}
+          label="Address Line 3"
+          variant="outlined"
+          fullWidth
+          name="address_line_3"
+          value={pilotData.address.address_line_3}
+          onChange={handlePilotAddressChange}
+          margin="normal"
+        />
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              className={classes.textField}
+              label="City"
+              variant="outlined"
+              fullWidth
+              name="city"
+              value={pilotData.address.city}
+              onChange={handlePilotAddressChange}
+              required
+              margin="normal"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              className={classes.textField}
+              label="Postal Code"
+              variant="outlined"
+              fullWidth
+              name="postcode"
+              value={pilotData.address.postcode}
+              onChange={handlePilotAddressChange}
+              required
+              margin="normal"
+            />
+          </Grid>
+        </Grid>
+        <TextField
+          className={classes.textField}
+          select
+          label="Country"
+          variant="outlined"
+          fullWidth
+          name="country"
+          value={pilotData.address.country}
+          onChange={handlePilotAddressChange}
+          required
+          margin="normal"
+        >
+          {COUNTRIES.map(option => (
+            <MenuItem key={option.code} value={option.code}>
+              {option.name}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Box>
     </>
   );
 
