@@ -17,6 +17,7 @@ import {
 import bgImage from '../../images/blurBg.jpg';
 import { OPERATOR_TYPES, COUNTRIES, INITIAL_ADDRESS } from './constants';
 import * as apiService from '../../services/apiService';
+// import { useHistory } from 'react-router-dom';
 
 const useStyles = makeStyles(() => ({
   root: {
@@ -109,6 +110,7 @@ const MANUFACTURERS = [
 
 export default function RegistrationPage() {
   const classes = useStyles();
+  // const history = useHistory(); // remove this line
   const [entityType, setEntityType] = useState('operator');
   const [operators, setOperators] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -189,7 +191,11 @@ export default function RegistrationPage() {
 
   // Fetch operators for the dropdown
   useEffect(() => {
-    if (entityType === 'pilot' || entityType === 'contact' || entityType === 'aircraft') {
+    if (
+      entityType === 'pilot' ||
+      entityType === 'contact' ||
+      entityType === 'aircraft'
+    ) {
       fetchOperators();
     }
   }, [entityType]);
@@ -324,6 +330,7 @@ export default function RegistrationPage() {
           throw new Error('Unknown entity type');
       }
       resetForm();
+      window.location.assign('/');
     } catch (error) {
       showNotification(`Registration failed: ${error.message}`, 'error');
     } finally {

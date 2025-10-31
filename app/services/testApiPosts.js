@@ -22,11 +22,17 @@ const authHeaders = () => ({
 
 const post = async (path, data) => {
   try {
-    const res = await axios.post(`${BASE_URL}/${path}`, data, { headers: authHeaders() });
+    const res = await axios.post(`${BASE_URL}/${path}`, data, {
+      headers: authHeaders(),
+    });
     return { ok: true, data: res.data, status: res.status };
   } catch (error) {
     if (error.response) {
-      return { ok: false, status: error.response.status, data: error.response.data };
+      return {
+        ok: false,
+        status: error.response.status,
+        data: error.response.data,
+      };
     }
     return { ok: false, error: error.message };
   }
@@ -55,15 +61,20 @@ async function createOperator() {
 
   // 1) Create operator
   const res = await post('operators', payload);
-  if (!res.ok) throw new Error(`Operator create failed: ${JSON.stringify(res, null, 2)}`);
+  if (!res.ok)
+    throw new Error(`Operator create failed: ${JSON.stringify(res, null, 2)}`);
 
   // The backend’s POST serializer doesn’t return id; fetch it
   try {
-    const list = await axios.get(`${BASE_URL}/operators`, { headers: authHeaders() });
+    const list = await axios.get(`${BASE_URL}/operators`, {
+      headers: authHeaders(),
+    });
     if (list.status === 200 && Array.isArray(list.data)) {
       const match =
         list.data.find(
-          o => o.email === payload.email && o.company_name === payload.company_name,
+          o =>
+            o.email === payload.email &&
+            o.company_name === payload.company_name,
         ) || list.data[list.data.length - 1];
       if (match && match.id) return match.id;
     }
@@ -137,11 +148,14 @@ async function testAircraft(operatorId) {
   const manufacturerId = await fetchManufacturerIdOrEmpty();
 
   const payload = {
-    operator: operatorId,         // must be UUID
-    mass: 12,                     // integer
+    operator: operatorId, // must be UUID
+    mass: 12, // integer
     manufacturer: manufacturerId, // id or '' to let backend choose/create
     model: 'SkySwift 100',
-    esn: uuidv4().replace(/-/g, '').padEnd(48, '0').slice(0, 48),
+    esn: uuidv4()
+      .replace(/-/g, '')
+      .padEnd(48, '0')
+      .slice(0, 48),
     maci_number: 'MACI-001',
     registration_mark: 'A6-TEST',
     category: 2,
