@@ -30,3 +30,13 @@ Start the server.
 `npm start`
 
 Open a browser to http://localhost:3000
+
+## For discovery service
+### Steps
+Install all the dependencies.
+
+'pip install -r requirements.txt'
+
+Start the service
+
+'python discovery_service.py'

@@ -330,7 +330,7 @@ export default function RegistrationPage() {
           throw new Error('Unknown entity type');
       }
       resetForm();
-      window.location.assign('/');
+      showNotification('Registration successful!', 'success');
     } catch (error) {
       showNotification(`Registration failed: ${error.message}`, 'error');
     } finally {

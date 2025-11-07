@@ -61,26 +61,15 @@ const useStyles = makeStyles(theme => ({
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    // marginTop: 79,
   },
   fullBgImage: {
     backgroundImage: `url(${bgImage})`,
     backgroundPosition: 'center',
     backgroundSize: 'cover',
   },
-  menuButton: {
-    // marginRight: theme.spacing(1),
-  },
-  title: {
-    flexGrow: 1,
-  },
   avatar: {
     margin: 10,
     cursor: 'pointer',
-  },
-  media: {
-    height: 0,
-    paddingTop: '56.25%', // 16:9
   },
   textField: {
     minWidth: 320,
@@ -90,13 +79,6 @@ const useStyles = makeStyles(theme => ({
   },
   menu: {
     width: 200,
-  },
-  typeCard: {
-    height: 180,
-    width: 180,
-  },
-  activeCard: {
-    border: `solid 3px ${theme.palette.primary.main}`,
   },
   paper: {
     padding: 40,
@@ -147,6 +129,7 @@ export function LandingPage({
   function handleClose() {
     setAnchorEl(null);
   }
+
   return (
     <Box className={classes.root}>
       <Helmet>
@@ -188,14 +171,7 @@ export function LandingPage({
           )}
         </Box>
       </AppBar>
-      <Grid
-        className={classes.container}
-        // container
-        // direction="column"
-        // justify="center"
-        // alignItems="center"
-        // spacing={3}
-      >
+      <Grid className={classes.container}>
         {!isAuthenticated ? (
           <>
             <Button
@@ -287,6 +263,13 @@ export function LandingPage({
                     >
                       REGISTER NOW
                     </Button>
+                    <Button
+                      variant="contained"
+                      className={classes.actionButton}
+                      onClick={() => props.history.push('/load')}
+                    >
+                      ACTIVATE MODULE
+                    </Button>
                   </Box>
                 </Grid>
               )}
@@ -308,20 +291,13 @@ export function LandingPage({
               direction="row"
               justify="center"
               spacing={3}
-              style={{ marginTop: '5px' }} // Added 5px margin to drop the search results down
+              style={{ marginTop: '5px' }}
             >
               {collection &&
                 collection.length &&
                 collection.map(item => (
                   <Grid key={item.id} item xs={12} sm={6} md={3}>
                     <Card style={{ marginTop: 10 }}>
-                      {/* <CardActionArea
-                        onClick={() =>
-                          props.history.push(
-                            `/${collectionType.single}/${item.id}`,
-                          )
-                        }
-                      > */}
                       <CardContent>
                         <DetailsCard {...item} />
                       </CardContent>
@@ -347,7 +323,6 @@ export function LandingPage({
                           Details (privileged)
                         </Button>
                       </CardActions>
-                      {/* </CardActionArea> */}
                     </Card>
                   </Grid>
                 ))}

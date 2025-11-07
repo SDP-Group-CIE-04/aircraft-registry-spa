@@ -15,6 +15,7 @@ import LandingPage from '../LandingPage/Loadable';
 import DetailsPage from '../DetailsPage/Loadable';
 import NotFoundPage from '../NotFoundPage/Loadable';
 import RegistrationPage from '../RegistrationPage/Loadable';
+import LoadPage from '../LoadPage/Loadable';
 
 import { useAuth0 } from '../Auth';
 
@@ -103,6 +104,10 @@ export default function App() {
               <DetailsPage privileged routeType="pilots" {...props} />
             )}
           />
+
+          {/* ✅ Added LoadPage route */}
+          <Route exact path="/load" component={LoadPage} />
+
           <Route path="" component={NotFoundPage} />
         </Switch>
       )}
@@ -111,3 +116,4 @@ export default function App() {
     </AppWrapper>
   );
 }
+  
