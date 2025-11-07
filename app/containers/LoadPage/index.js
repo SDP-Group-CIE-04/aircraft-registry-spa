@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import {
   Box,
@@ -16,6 +16,7 @@ import {
 import { makeStyles } from '@material-ui/core/styles';
 import RefreshIcon from '@material-ui/icons/Refresh';
 import WifiIcon from '@material-ui/icons/Wifi';
+import history from '../../utils/history';
 import bgImage from '../../images/blurBg.jpg';
 
 const useStyles = makeStyles(theme => ({
@@ -103,7 +104,7 @@ const useStyles = makeStyles(theme => ({
 
 const DISCOVERY_SERVICE_URL = 'http://localhost:8080';
 
-export default function LoadPage(props) {
+export default function LoadPage() {
   const classes = useStyles();
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -117,6 +118,12 @@ export default function LoadPage(props) {
     severity: 'success',
   });
 
+  useEffect(() => {
+    // Call scanForDevices on mount
+    scanForDevices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const showNotification = (message, severity = 'success') => {
     setNotification({
       open: true,
@@ -129,11 +136,11 @@ export default function LoadPage(props) {
     setNotification({ ...notification, open: false });
   };
 
-  const scanForDevices = useCallback(async () => {
-    setScanning(true);
-    setError(null);
-    
+  const scanForDevices = async () => {
     try {
+      setScanning(true);
+      setError(null);
+      
       const response = await fetch(`${DISCOVERY_SERVICE_URL}/devices`);
       
       if (!response.ok) {
@@ -143,9 +150,9 @@ export default function LoadPage(props) {
       const data = await response.json();
       setDevices(data.devices || []);
       
-      if (data.devices.length === 0) {
+      if (data.devices && data.devices.length === 0) {
         setError(
-          'No RSAS modules found on network. Make sure modules are powered on and connected to WiFi.'
+          'No RSAS modules found. Make sure your ESP32 is connected via USB.'
         );
       }
     } catch (err) {
@@ -153,15 +160,12 @@ export default function LoadPage(props) {
       setError(
         'Cannot connect to Discovery Service. Please ensure the service is running on localhost:8080'
       );
+      setDevices([]); // Ensure devices is set to empty array on error
     } finally {
       setScanning(false);
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    scanForDevices();
-  }, [scanForDevices]);
+  };
 
   const handleDeviceSelect = (device) => {
     setSelectedDevice(device);
@@ -178,7 +182,7 @@ export default function LoadPage(props) {
     
     try {
       const activationData = {
-        device_ip: selectedDevice.ip,
+        device_port: selectedDevice.port,  // Changed from device_ip to device_port
         aircraft_data: {
           operator_id: 'PENDING',
           aircraft_id: 'PENDING',
@@ -225,7 +229,7 @@ export default function LoadPage(props) {
   };
 
   const renderDeviceCard = (device, index) => {
-    const isSelected = selectedDevice?.ip === device.ip;
+    const isSelected = selectedDevice?.port === device.port;
     
     return (
       <Grid item xs={12} md={6} key={index}>
@@ -249,15 +253,19 @@ export default function LoadPage(props) {
             </Box>
             
             <Typography variant="body2" color="textSecondary" style={{ marginTop: 8 }}>
-              <strong>IP Address:</strong> {device.ip}:{device.port}
+              <strong>USB Port:</strong> {device.port}
             </Typography>
             
             <Typography variant="body2" color="textSecondary">
-              <strong>Hostname:</strong> {device.hostname}
+              <strong>Connection:</strong> {device.connection_type}
+            </Typography>
+            
+            <Typography variant="body2" color="textSecondary">
+              <strong>Manufacturer:</strong> {device.manufacturer}
             </Typography>
             
             <Typography variant="caption" color="textSecondary" display="block" style={{ marginTop: 8 }}>
-              Last seen: {new Date(device.last_seen * 1000).toLocaleTimeString()}
+              {device.description}
             </Typography>
           </CardContent>
           
@@ -287,18 +295,19 @@ export default function LoadPage(props) {
   };
 
   const renderContent = () => {
-    if (loading) {
-      return (
-        <Box className={classes.loadingBox}>
-          <CircularProgress size={60} />
-          <Typography variant="body1" style={{ marginTop: 16 }}>
-            Scanning for RSAS modules...
-          </Typography>
-        </Box>
-      );
-    }
+    try {
+      if (loading) {
+        return (
+          <Box className={classes.loadingBox}>
+            <CircularProgress size={60} />
+            <Typography variant="body1" style={{ marginTop: 16 }}>
+              Scanning for RSAS modules...
+            </Typography>
+          </Box>
+        );
+      }
 
-    if (devices.length === 0) {
+      if (!devices || devices.length === 0) {
       return (
         <Box className={classes.emptyState}>
           <WifiIcon className={classes.emptyIcon} />
@@ -306,7 +315,7 @@ export default function LoadPage(props) {
             No RSAS Modules Found
           </Typography>
           <Typography variant="body2" color="textSecondary" paragraph>
-            Make sure your ESP32 modules are powered on and connected to the same WiFi network.
+            Make sure your ESP32 module is connected via USB cable.
           </Typography>
           <Button
             variant="contained"
@@ -338,7 +347,7 @@ export default function LoadPage(props) {
         </Box>
 
         <Grid container spacing={3}>
-          {devices.map((device, index) => renderDeviceCard(device, index))}
+          {devices && devices.map((device, index) => renderDeviceCard(device, index))}
         </Grid>
 
         {selectedDevice && (
@@ -350,20 +359,38 @@ export default function LoadPage(props) {
         )}
       </>
     );
+    } catch (err) {
+      console.error('Error rendering content:', err);
+      return (
+        <Box className={classes.emptyState}>
+          <Typography variant="h6" gutterBottom color="error">
+            Error Loading Page
+          </Typography>
+          <Typography variant="body2" color="textSecondary" paragraph>
+            {err.message || 'An unexpected error occurred'}
+          </Typography>
+          <Button
+            variant="contained"
+            className={classes.actionButton}
+            onClick={() => window.location.reload()}
+          >
+            Reload Page
+          </Button>
+        </Box>
+      );
+    }
   };
 
   return (
-    <Box className={classes.root}>
+    <>
       <Helmet>
-        <title>Activate RSAS Module - Airegister</title>
-        <meta
-          name="description"
-          content="Activate RSAS Module in the Airegister system"
-        />
-        <body className={classes.fullBgImage} />
+        <title>Activate RSAS Module</title>
+        <meta name="description" content="Activate RSAS Module" />
       </Helmet>
-      <Box className={classes.container}>
-        <Paper elevation={4} className={classes.paper}>
+      
+      <div className={classes.root}>
+        <div className={`${classes.container} ${classes.fullBgImage}`}>
+          <Paper className={classes.paper}>
             <Box className={classes.header}>
               <Box className={classes.title}>
                 <WifiIcon className={classes.icon} color="primary" />
@@ -385,20 +412,20 @@ export default function LoadPage(props) {
               fullWidth
               variant="outlined"
               className={classes.backButton}
-              onClick={() => props.history.push('/')}
+              onClick={() => history.push('/')}
             >
               Back to Home
             </Button>
           </Paper>
-      </Box>
+        </div>
+      </div>
 
-      {/* Notification Snackbar */}
       <Snackbar
         open={notification.open}
         autoHideDuration={6000}
         onClose={handleCloseNotification}
         message={notification.message}
       />
-    </Box>
+    </>
   );
 }

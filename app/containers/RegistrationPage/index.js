@@ -17,7 +17,7 @@ import {
 import bgImage from '../../images/blurBg.jpg';
 import { OPERATOR_TYPES, COUNTRIES, INITIAL_ADDRESS } from './constants';
 import * as apiService from '../../services/apiService';
-// import { useHistory } from 'react-router-dom';
+import history from '../../utils/history';
 
 const useStyles = makeStyles(() => ({
   root: {
@@ -60,6 +60,9 @@ const useStyles = makeStyles(() => ({
     '&:hover': {
       backgroundColor: '#1976D2',
     },
+  },
+  backButton: {
+    marginTop: '20px',
   },
   sectionTitle: {
     marginTop: '20px',
@@ -1442,6 +1445,15 @@ export default function RegistrationPage() {
               ) : (
                 'Register'
               )}
+            </Button>
+
+            <Button
+              fullWidth
+              variant="outlined"
+              className={classes.backButton}
+              onClick={() => history.push('/')}
+            >
+              Back to Home
             </Button>
           </form>
         </Paper>
