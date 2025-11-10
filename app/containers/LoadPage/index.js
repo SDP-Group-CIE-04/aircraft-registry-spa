@@ -12,12 +12,14 @@ import {
   Grid,
   Chip,
   Snackbar,
+  Divider,
 } from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
 import RefreshIcon from '@material-ui/icons/Refresh';
 import WifiIcon from '@material-ui/icons/Wifi';
 import history from '../../utils/history';
 import bgImage from '../../images/blurBg.jpg';
+import * as apiService from '../../services/apiService';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -99,9 +101,26 @@ const useStyles = makeStyles(theme => ({
   backButton: {
     marginTop: '20px',
   },
+  consoleBox: {
+    background: '#0f172a',       // slate-900-ish
+    color: '#e2e8f0',            // slate-200-ish
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+    fontSize: 12.5,
+    borderRadius: 6,
+    padding: '12px 14px',
+    overflowX: 'auto',
+  },
+  consoleLabel: {
+    color: '#93c5fd',            // blue-300
+    fontWeight: 600,
+    marginRight: 8,
+  },
+  consoleMuted: {
+    color: '#94a3b8',            // slate-400
+  },
 }));
 
-
+// If Discovery Service runs on another machine, change this to that host/IP.
 const DISCOVERY_SERVICE_URL = 'http://localhost:8080';
 
 export default function LoadPage() {
@@ -117,11 +136,53 @@ export default function LoadPage() {
     message: '',
     severity: 'success',
   });
+  const [operatorId, setOperatorId] = useState(null);
+  const [aircraftLoading, setAircraftLoading] = useState(false);
+  const [aircraftError, setAircraftError] = useState(null);
+  const [aircraftList, setAircraftList] = useState([]);
+  const [selectedAircraftId, setSelectedAircraftId] = useState('');
+  const [operators, setOperators] = useState([]);
+  const [operatorsLoading, setOperatorsLoading] = useState(false);
+  const [operatorsError, setOperatorsError] = useState(null);
 
+  // NEW: simple per-device console { [port]: { cmd, msg, time } }
+  const [deviceConsole, setDeviceConsole] = useState({});
+
+  // Scan on mount (fixed stray char)
   useEffect(() => {
-    // Call scanForDevices on mount
     scanForDevices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Load operator id from localStorage and fetch aircraft
+    const storedOperatorId = window.localStorage.getItem('operator_id');
+    if (storedOperatorId) {
+      setOperatorId(storedOperatorId);
+      fetchAircraftForOperator(storedOperatorId);
+    } else {
+      setOperatorId(null);
+      setAircraftList([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Fetch operator list
+    const loadOperators = async () => {
+      try {
+        setOperatorsLoading(true);
+        setOperatorsError(null);
+        const data = await apiService.getOperators();
+        setOperators(Array.isArray(data) ? data : (data?.results || []));
+      } catch (err) {
+        console.error('Fetch operators error:', err);
+        setOperatorsError(err.message || 'Failed to load operators');
+        setOperators([]);
+      } finally {
+        setOperatorsLoading(false);
+      }
+    };
+    loadOperators();
   }, []);
 
   const showNotification = (message, severity = 'success') => {
@@ -140,35 +201,65 @@ export default function LoadPage() {
     try {
       setScanning(true);
       setError(null);
-      
+
       const response = await fetch(`${DISCOVERY_SERVICE_URL}/devices`);
-      
-      if (!response.ok) {
-        throw new Error('Discovery service not responding');
-      }
-      
-      const data = await response.json();
-      setDevices(data.devices || []);
-      
-      if (data.devices && data.devices.length === 0) {
-        setError(
-          'No RSAS modules found. Make sure your ESP32 is connected via USB.'
-        );
+      if (!response.ok) throw new Error('Discovery service not responding');
+
+      const data = await response.json().catch(() => ({}));
+      const list = data?.devices || [];
+      setDevices(list);
+
+      if (list.length === 0) {
+        setError('No RSAS modules found. Make sure your ESP32 is connected via USB.');
       }
     } catch (err) {
       console.error('Scan error:', err);
-      setError(
-        'Cannot connect to Discovery Service. Please ensure the service is running on localhost:8080'
-      );
-      setDevices([]); // Ensure devices is set to empty array on error
+      setError('Cannot connect to Discovery Service. Please ensure the service is running on localhost:8080');
+      setDevices([]);
     } finally {
       setScanning(false);
       setLoading(false);
     }
   };
 
-  const handleDeviceSelect = (device) => {
-    setSelectedDevice(device);
+  const fetchAircraftForOperator = async (opId) => {
+    try {
+      setAircraftLoading(true);
+      setAircraftError(null);
+      const list = await apiService.getAircraftByOperator(opId);
+      setAircraftList(list || []);
+      if ((list || []).length === 0) {
+        setAircraftError('No aircraft found for this operator. Please register an aircraft first.');
+      }
+    } catch (err) {
+      console.error('Fetch aircraft error:', err);
+      setAircraftError(err.message || 'Failed to load aircraft');
+      setAircraftList([]);
+    } finally {
+      setAircraftLoading(false);
+    }
+  };
+
+  const handleDeviceSelect = (device) => setSelectedDevice(device);
+
+  const handleOperatorSelect = (e) => {
+    const id = e.target.value;
+    setOperatorId(id);
+    setSelectedAircraftId('');
+    setAircraftList([]);
+    if (id) {
+      try {
+        window.localStorage.setItem('operator_id', id);
+      } catch (err) {
+        console.warn('Unable to persist operator_id:', err);
+      }
+      fetchAircraftForOperator(id);
+    }
+  };
+
+  // Always store aircraft id as string to avoid type mismatch on lookup
+  const handleAircraftSelect = (e) => {
+    setSelectedAircraftId(String(e.target.value));
   };
 
   const handleActivate = async () => {
@@ -176,67 +267,118 @@ export default function LoadPage() {
       showNotification('Please select a device first', 'error');
       return;
     }
+    if (!operatorId) {
+      showNotification('Missing operator. Please register an operator first.', 'error');
+      return;
+    }
+    const selectedAircraft = aircraftList.find(a => String(a.id) === String(selectedAircraftId));
+    if (!selectedAircraft) {
+      showNotification('Please select an aircraft first', 'error');
+      return;
+    }
 
     setActivating(true);
     setError(null);
-    
+
     try {
+      // Normalize mass to kilograms if backend stores grams
+      const rawMass = selectedAircraft.mass;
+      const mass =
+        typeof rawMass === 'number'
+          ? (rawMass > 50 ? rawMass / 1000 : rawMass)
+          : parseFloat(rawMass) || 0;
+
       const activationData = {
-        device_port: selectedDevice.port,  // Changed from device_ip to device_port
+        device_port: selectedDevice.port,  // USB serial port to Discovery Service
         aircraft_data: {
-          operator_id: 'PENDING',
-          aircraft_id: 'PENDING',
-          registration_mark: 'PENDING',
-          model: 'TEST MODULE',
+          operator_id: operatorId,
+          aircraft_id: selectedAircraft.id,
+          registration_mark: selectedAircraft.registration_mark,
+          model: selectedAircraft.model || selectedAircraft.popular_name || '',
+          mass,
           esn: selectedDevice.esn,
         },
       };
-      
-      console.log('Activating device:', activationData);
-      
-      if (activationData.aircraft_data.aircraft_id === 'PENDING') {
-        throw new Error(
-          'Please register an aircraft first. Go to Register → Aircraft Registration.'
-        );
-      }
-      
+
       const response = await fetch(`${DISCOVERY_SERVICE_URL}/activate`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(activationData),
       });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        showNotification(
-          `Module ${selectedDevice.esn} activated successfully!`,
-          'success'
-        );
-        setSelectedDevice(null);
-        setTimeout(() => scanForDevices(), 2000);
-      } else {
-        throw new Error(result.error || 'Activation failed');
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || result?.success === false) {
+        // Capture failure in console as well
+        const now = new Date().toLocaleString();
+        setDeviceConsole(prev => ({
+          ...prev,
+          [selectedDevice.port]: {
+            cmd: result?.sent_command || 'BASIC_SET ...',
+            msg: result?.error || 'Activation failed',
+            time: now,
+          },
+        }));
+        throw new Error(result?.error || 'Activation failed');
       }
+
+      const deviceReply = result?.esp32_response || 'OK';
+      const now = new Date().toLocaleString();
+      setDeviceConsole(prev => ({
+        ...prev,
+        [selectedDevice.port]: {
+          cmd: result?.sent_command || `BASIC_SET operator_id=${operatorId}|aircraft_id=${selectedAircraft.id}`,
+          msg: deviceReply,
+          time: now,
+        },
+      }));
+
+      showNotification(`Module ${selectedDevice.esn} activated. Device: ${deviceReply}`, 'success');
+
+      // Keep selection so user can see console; re-scan to reflect status
+      setTimeout(() => scanForDevices(), 1200);
     } catch (err) {
       console.error('Activation error:', err);
-      showNotification(err.message, 'error');
+      showNotification(err.message || 'Activation failed', 'error');
     } finally {
       setActivating(false);
     }
   };
 
+  const renderDeviceConsole = (device) => {
+    const entry = deviceConsole[device.port];
+    if (!entry) return null;
+
+    return (
+      <Box mt={1.5}>
+        <Divider style={{ marginBottom: 8 }} />
+        <Typography variant="subtitle2" gutterBottom>
+          Device Console
+        </Typography>
+        <Box className={classes.consoleBox}>
+          <div>
+            <span className={classes.consoleLabel}>Sent:</span>
+            <span className={classes.consoleMuted}>{entry.time}</span>
+          </div>
+          <pre style={{ margin: '6px 0 10px' }}>
+{entry.cmd}
+          </pre>
+          <div className={classes.consoleLabel}>Response:</div>
+          <pre style={{ margin: '6px 0 0' }}>
+{entry.msg || '—'}
+          </pre>
+        </Box>
+      </Box>
+    );
+  };
+
   const renderDeviceCard = (device, index) => {
     const isSelected = selectedDevice?.port === device.port;
-    
+
     return (
       <Grid item xs={12} md={6} key={index}>
         <Card
-          className={`${classes.deviceCard} ${
-            isSelected ? classes.deviceCardActive : ''
-          }`}
+          className={`${classes.deviceCard} ${isSelected ? classes.deviceCardActive : ''}`}
           onClick={() => handleDeviceSelect(device)}
         >
           <CardContent>
@@ -251,24 +393,26 @@ export default function LoadPage() {
                 className={classes.statusChip}
               />
             </Box>
-            
+
             <Typography variant="body2" color="textSecondary" style={{ marginTop: 8 }}>
               <strong>USB Port:</strong> {device.port}
             </Typography>
-            
+
             <Typography variant="body2" color="textSecondary">
               <strong>Connection:</strong> {device.connection_type}
             </Typography>
-            
+
             <Typography variant="body2" color="textSecondary">
               <strong>Manufacturer:</strong> {device.manufacturer}
             </Typography>
-            
+
             <Typography variant="caption" color="textSecondary" display="block" style={{ marginTop: 8 }}>
               {device.description}
             </Typography>
+
+            {isSelected && renderDeviceConsole(device)}
           </CardContent>
-          
+
           {isSelected && (
             <CardActions>
               <Button
@@ -281,11 +425,7 @@ export default function LoadPage() {
                 }}
                 disabled={activating}
               >
-                {activating ? (
-                  <CircularProgress size={24} color="inherit" />
-                ) : (
-                  'Activate This Module'
-                )}
+                {activating ? <CircularProgress size={24} color="inherit" /> : 'Activate This Module'}
               </Button>
             </CardActions>
           )}
@@ -308,57 +448,57 @@ export default function LoadPage() {
       }
 
       if (!devices || devices.length === 0) {
-      return (
-        <Box className={classes.emptyState}>
-          <WifiIcon className={classes.emptyIcon} />
-          <Typography variant="h6" gutterBottom>
-            No RSAS Modules Found
-          </Typography>
-          <Typography variant="body2" color="textSecondary" paragraph>
-            Make sure your ESP32 module is connected via USB cable.
-          </Typography>
-          <Button
-            variant="contained"
-            className={classes.actionButton}
-            startIcon={<RefreshIcon />}
-            onClick={scanForDevices}
-            disabled={scanning}
-          >
-            {scanning ? 'Scanning...' : 'Scan Again'}
-          </Button>
-        </Box>
-      );
-    }
-
-    return (
-      <>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-          <Typography variant="body1">
-            Found <strong>{devices.length}</strong> module(s) on network
-          </Typography>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={scanForDevices}
-            disabled={scanning || activating}
-          >
-            {scanning ? 'Scanning...' : 'Refresh'}
-          </Button>
-        </Box>
-
-        <Grid container spacing={3}>
-          {devices && devices.map((device, index) => renderDeviceCard(device, index))}
-        </Grid>
-
-        {selectedDevice && (
-          <Box mt={3} p={2} style={{ backgroundColor: '#d9edf7', borderRadius: 4 }}>
-            <Typography variant="body2" color="textSecondary">
-              Click "Activate This Module" to configure {selectedDevice.esn} with aircraft identity
+        return (
+          <Box className={classes.emptyState}>
+            <WifiIcon className={classes.emptyIcon} />
+            <Typography variant="h6" gutterBottom>
+              No RSAS Modules Found
             </Typography>
+            <Typography variant="body2" color="textSecondary" paragraph>
+              Make sure your ESP32 module is connected via USB cable.
+            </Typography>
+            <Button
+              variant="contained"
+              className={classes.actionButton}
+              startIcon={<RefreshIcon />}
+              onClick={scanForDevices}
+              disabled={scanning}
+            >
+              {scanning ? 'Scanning...' : 'Scan Again'}
+            </Button>
           </Box>
-        )}
-      </>
-    );
+        );
+      }
+
+      return (
+        <>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+            <Typography variant="body1">
+              Found <strong>{devices.length}</strong> module(s) on network
+            </Typography>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={scanForDevices}
+              disabled={scanning || activating}
+            >
+              {scanning ? 'Scanning...' : 'Refresh'}
+            </Button>
+          </Box>
+
+          <Grid container spacing={3}>
+            {devices && devices.map((device, index) => renderDeviceCard(device, index))}
+          </Grid>
+
+          {selectedDevice && (
+            <Box mt={3} p={2} style={{ backgroundColor: '#d9edf7', borderRadius: 4 }}>
+              <Typography variant="body2" color="textSecondary">
+                Click "Activate This Module" to configure {selectedDevice.esn} with aircraft identity
+              </Typography>
+            </Box>
+          )}
+        </>
+      );
     } catch (err) {
       console.error('Error rendering content:', err);
       return (
@@ -387,7 +527,7 @@ export default function LoadPage() {
         <title>Activate RSAS Module</title>
         <meta name="description" content="Activate RSAS Module" />
       </Helmet>
-      
+
       <div className={classes.root}>
         <div className={`${classes.container} ${classes.fullBgImage}`}>
           <Paper className={classes.paper}>
@@ -396,6 +536,89 @@ export default function LoadPage() {
                 <WifiIcon className={classes.icon} color="primary" />
                 <Typography variant="h4">Activate RSAS Module</Typography>
               </Box>
+            </Box>
+
+            {/* Operator selection */}
+            <Box mb={2}>
+              <Typography variant="subtitle1" gutterBottom>
+                Select Operator
+              </Typography>
+              {operatorsLoading ? (
+                <Box display="flex" alignItems="center">
+                  <CircularProgress size={24} />
+                  <Typography variant="body2" style={{ marginLeft: 8 }}>
+                    Loading operators...
+                  </Typography>
+                </Box>
+              ) : (
+                <select
+                  style={{ width: '100%', padding: 12, borderRadius: 4 }}
+                  value={operatorId || ''}
+                  onChange={handleOperatorSelect}
+                >
+                  <option value="" disabled>
+                    Choose an operator
+                  </option>
+                  {operators.map(o => (
+                    <option key={o.id} value={o.id}>
+                      {o.company_name || o.name || o.id}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {operatorsError && (
+                <Typography variant="body2" color="error" style={{ marginTop: 8 }}>
+                  {operatorsError}
+                </Typography>
+              )}
+            </Box>
+
+            {/* Aircraft selection */}
+            <Box mb={2}>
+              {operatorId ? (
+                <>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Select Aircraft
+                  </Typography>
+                  {aircraftLoading ? (
+                    <Box display="flex" alignItems="center">
+                      <CircularProgress size={24} />
+                      <Typography variant="body2" style={{ marginLeft: 8 }}>
+                        Loading aircraft...
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <select
+                      style={{ width: '100%', padding: 12, borderRadius: 4 }}
+                      value={selectedAircraftId}
+                      onChange={handleAircraftSelect}
+                    >
+                      <option value="" disabled>
+                        Choose an aircraft
+                      </option>
+                      {aircraftList.map(a => (
+                        <option key={a.id} value={String(a.id)}>
+                          {(a.registration_mark || 'Unregistered') +
+                            ' - ' +
+                            (a.model || a.popular_name || 'Unknown model') +
+                            (a.mass ? ` (${a.mass > 50 ? (a.mass / 1000) : a.mass}kg)` : '')}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {aircraftError && (
+                    <Typography variant="body2" color="error" style={{ marginTop: 8 }}>
+                      {aircraftError}
+                    </Typography>
+                  )}
+                </>
+              ) : (
+                <Box p={2} style={{ backgroundColor: '#fff8e1', borderRadius: 4 }}>
+                  <Typography variant="body2" color="textSecondary">
+                    No operator found. Register an operator first; its ID will be saved and used to load aircraft.
+                  </Typography>
+                </Box>
+              )}
             </Box>
 
             {error && (

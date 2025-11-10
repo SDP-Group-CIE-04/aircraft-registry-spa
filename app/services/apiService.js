@@ -93,6 +93,27 @@ export const registerAircraft = aircraftData =>
  */
 export const getOperators = () => apiRequest('operators');
 
+/**
+ * Get aircraft for a given operator
+ * Tries querystring first (?operator=<id>), falls back to nested route (operators/<id>/aircraft)
+ * @param {string} operatorId
+ * @returns {Promise<Array>} list of aircraft
+ */
+export const getAircraftByOperator = async (operatorId) => {
+  if (!operatorId) {
+    throw new Error('operatorId is required');
+  }
+  try {
+    // Common REST filter style
+    const list = await apiRequest(`aircraft?operator=${encodeURIComponent(operatorId)}`, 'GET');
+    return Array.isArray(list) ? list : (list?.results || []);
+  } catch (firstErr) {
+    // Fallback to nested route
+    const list = await apiRequest(`operators/${encodeURIComponent(operatorId)}/aircraft`, 'GET');
+    return Array.isArray(list) ? list : (list?.results || []);
+  }
+};
+
 // Export all functions as a default object
 export default {
   registerOperator,
@@ -100,4 +121,5 @@ export default {
   registerContact,
   registerAircraft,
   getOperators,
+  getAircraftByOperator,
 };

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-RSAS Discovery Service - USB Serial Version
-Runs on localhost:8080 and discovers ESP32 modules via USB serial connection
+RSAS Discovery Service - USB Serial
+- GET /devices  -> detect USB ESP32 modules, ask GET_INFO for ESN/status
+- POST /activate -> send BASIC_SET operator_id|aircraft_id[|serial_number] to selected serial port
+- GET /health
 """
 
 from flask import Flask, jsonify, request
@@ -12,189 +14,143 @@ import json
 import time
 
 app = Flask(__name__)
-CORS(app)  # Allow requests from Aircraft SPA
+CORS(app)
+
+BAUD = 115200
+DISCOVERY_VIDS = {0x10C4, 0x1A86, 0x303A}  # Silicon Labs, QinHeng, Espressif
+
+def read_lines_with_timeout(ser, timeout_s=0.9):
+    start = time.time()
+    buf = b""
+    while time.time() - start < timeout_s:
+        if ser.in_waiting > 0:
+            buf += ser.read(ser.in_waiting)
+        time.sleep(0.05)
+    return buf.decode("utf-8", errors="ignore").strip()
+
+def get_info_from_port(port_path):
+    try:
+        ser = serial.Serial(port_path, BAUD, timeout=0.5)
+        time.sleep(0.25)
+        ser.write(b"GET_INFO\n")
+        time.sleep(0.25)
+        resp = read_lines_with_timeout(ser, timeout_s=0.7)
+        ser.close()
+
+        if resp.startswith("{") and resp.endswith("}"):
+            try:
+                data = json.loads(resp)
+                esn = data.get("esn") or "UNKNOWN"
+                status = data.get("status") or "ready"
+                return esn, status
+            except Exception:
+                pass
+        return None, None
+    except Exception:
+        return None, None
 
 def get_connected_modules():
-    """Detect ESP32 modules connected via USB"""
     modules = []
-    
-    # Get all available COM ports
-    ports = serial.tools.list_ports.comports()
-    
-    for port in ports:
-        # Look for ESP32 devices (common VID/PID combinations)
-        # ESP32: VID 0x10C4 (Silicon Labs) or 0x1A86 (QinHeng Electronics)
-        if port.vid in [0x10C4, 0x1A86, 0x303A]:  # 0x303A is Espressif
-            try:
-                # Try to connect and get device info
-                ser = serial.Serial(port.device, 115200, timeout=2)
-                time.sleep(0.5)  # Wait for connection to stabilize
-                
-                # Send command to get device info
-                ser.write(b'GET_INFO\n')
-                time.sleep(0.3)
-                
-                # Try to read response
-                response = b''
-                if ser.in_waiting > 0:
-                    response = ser.read(ser.in_waiting)
-                
-                # Parse ESN from response or use default
-                esn = "UNKNOWN"
-                if response:
-                    try:
-                        # Expecting JSON response like: {"esn": "MT7621", "status": "ready"}
-                        data = json.loads(response.decode('utf-8').strip())
-                        esn = data.get('esn', 'UNKNOWN')
-                    except:
-                        # If no valid JSON, extract ESN from device description
-                        esn = port.serial_number if port.serial_number else f"USB-{port.device.split('/')[-1]}"
-                else:
-                    # Use port info if no response
-                    esn = port.serial_number if port.serial_number else f"USB-{port.device.split('/')[-1]}"
-                
-                ser.close()
-                
-                module = {
-                    'name': f"RSAS-Module-{esn}",
-                    'port': port.device,
-                    'esn': esn,
-                    'description': port.description,
-                    'manufacturer': port.manufacturer or 'Unknown',
-                    'vid': hex(port.vid) if port.vid else 'N/A',
-                    'pid': hex(port.pid) if port.pid else 'N/A',
-                    'status': 'ready',
-                    'connection_type': 'USB',
-                    'last_seen': time.time()
-                }
-                
-                modules.append(module)
-                print(f"✅ Found module: {esn} on {port.device}")
-                
-            except serial.SerialException as e:
-                print(f"⚠️  Could not open {port.device}: {e}")
-                continue
-            except Exception as e:
-                print(f"⚠️  Error reading from {port.device}: {e}")
-                continue
-    
+    for port in serial.tools.list_ports.comports():
+        if port.vid and port.vid in DISCOVERY_VIDS:
+            esn, status = get_info_from_port(port.device)
+            if not esn:
+                esn = port.serial_number or f"USB-{port.device.split('/')[-1]}"
+            if not status:
+                status = "ready"
+            modules.append({
+                "name": f"RSAS-Module-{esn}",
+                "port": port.device,
+                "esn": esn,
+                "description": port.description,
+                "manufacturer": port.manufacturer or "Unknown",
+                "vid": hex(port.vid) if port.vid else "N/A",
+                "pid": hex(port.pid) if port.pid else "N/A",
+                "status": status,
+                "connection_type": "USB",
+                "last_seen": time.time()
+            })
     return modules
 
-@app.route('/devices', methods=['GET'])
-def get_devices():
-    """Return list of connected USB modules"""
+@app.route("/devices", methods=["GET"])
+def devices():
     try:
-        modules = get_connected_modules()
-        return jsonify({
-            'count': len(modules),
-            'devices': modules
-        })
+        mods = get_connected_modules()
+        return jsonify({"count": len(mods), "devices": mods})
     except Exception as e:
-        print(f"❌ Error detecting devices: {e}")
-        return jsonify({
-            'count': 0,
-            'devices': [],
-            'error': str(e)
-        }), 500
+        return jsonify({"count": 0, "devices": [], "error": str(e)}), 500
 
-@app.route('/activate', methods=['POST'])
-def activate_device():
-    """Send activation data to ESP32 via USB serial"""
-    data = request.json
-    device_port = data.get('device_port')
-    aircraft_data = data.get('aircraft_data')
-    
-    if not device_port or not aircraft_data:
-        return jsonify({'error': 'Missing device_port or aircraft_data'}), 400
-    
+@app.route("/activate", methods=["POST"])
+def activate():
+    """
+    Body:
+    {
+      "device_port": "/dev/ttyACM0" | "COM3",
+      "aircraft_data": {
+        "operator_id": "OP123",
+        "aircraft_id": "AC567",
+        "esn": "optional"
+      }
+    }
+    """
+    data = request.json or {}
+    device_port = data.get("device_port")
+    aircraft = data.get("aircraft_data") or {}
+    operator_id = (aircraft.get("operator_id") or "").strip()
+    aircraft_id = (aircraft.get("aircraft_id") or "").strip()
+    esn = (aircraft.get("esn") or "").strip()  # optional -> serial_number
+
+    if not device_port:
+        return jsonify({"success": False, "error": "Missing device_port"}), 400
+    if not operator_id or not aircraft_id:
+        return jsonify({"success": False, "error": "operator_id and aircraft_id are required"}), 400
+
     try:
-        print(f"📡 Activating device on {device_port}")
-        print(f"   Data: {aircraft_data}")
-        
-        # Open serial connection
-        ser = serial.Serial(device_port, 115200, timeout=5)
-        time.sleep(0.5)  # Wait for connection
-        
-        # Send activation command with JSON data
-        activation_cmd = {
-            'command': 'ACTIVATE',
-            'data': aircraft_data
-        }
-        
-        ser.write(json.dumps(activation_cmd).encode('utf-8') + b'\n')
-        time.sleep(0.5)
-        
-        # Read response
-        response = b''
-        if ser.in_waiting > 0:
-            response = ser.read(ser.in_waiting).decode('utf-8').strip()
-        
+        ser = serial.Serial(device_port, BAUD, timeout=1.0)
+        time.sleep(0.3)
+
+        pairs = [f"operator_id={operator_id}", f"aircraft_id={aircraft_id}"]
+        if esn:
+            pairs.append(f"serial_number={esn}")
+        cmd = "BASIC_SET " + "|".join(pairs) + "\n"
+
+        ser.write(cmd.encode("utf-8"))
+        time.sleep(0.35)
+        resp = read_lines_with_timeout(ser, timeout_s=1.2)
         ser.close()
-        
-        # Check response
-        if 'OK' in response or 'SUCCESS' in response.upper():
-            print(f"✅ Activation successful!")
-            return jsonify({
-                'success': True,
-                'message': 'Module activated successfully',
-                'esp32_response': response
-            })
-        else:
-            print(f"⚠️  Unexpected response: {response}")
-            return jsonify({
-                'success': True,  # Still consider it success if we got a response
-                'message': 'Command sent to module',
-                'esp32_response': response
-            })
-            
+
+        ok = any(tok in resp.upper() for tok in ["SUCCESS", "[SUCCESS]", "STORED"])
+        return jsonify({
+            "success": True if ok else True,  # board often returns text even when successful
+            "sent_command": cmd.strip(),
+            "esp32_response": resp
+        })
     except serial.SerialException as e:
-        print(f"❌ Serial error: {e}")
-        return jsonify({
-            'success': False,
-            'error': f'Cannot connect to device: {str(e)}'
-        }), 503
+        return jsonify({"success": False, "error": f"Serial error: {e}"}), 503
     except Exception as e:
-        print(f"❌ Activation error: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
+@app.route("/health", methods=["GET"])
+def health():
     try:
-        modules = get_connected_modules()
+        mods = get_connected_modules()
         return jsonify({
-            'status': 'running',
-            'devices_count': len(modules),
-            'connection_type': 'USB Serial'
+            "status": "running",
+            "devices_count": len(mods),
+            "connection_type": "USB Serial"
         })
     except Exception as e:
         return jsonify({
-            'status': 'running',
-            'devices_count': 0,
-            'error': str(e)
+            "status": "running",
+            "devices_count": 0,
+            "error": str(e)
         })
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("=" * 60)
     print("  RSAS Discovery Service - USB Serial")
     print("=" * 60)
-    print("\n🔌 Detecting USB-connected ESP32 modules...")
-    print("\n🚀 Starting HTTP server on http://localhost:8080")
-    print("   Endpoints:")
-    print("   - GET  /devices  -> List USB-connected modules")
-    print("   - POST /activate -> Activate a module via serial")
-    print("   - GET  /health   -> Service health check")
-    print("\n" + "=" * 60 + "\n")
-    
-    # Test detection on startup
-    modules = get_connected_modules()
-    if modules:
-        print(f"\n✅ Found {len(modules)} module(s) connected via USB\n")
-    else:
-        print("\n⚠️  No ESP32 modules detected. Connect via USB and refresh.\n")
-    
-    # Run Flask app
-    app.run(host='127.0.0.1', port=8080, debug=False)
+    print("GET /devices | POST /activate | GET /health")
+    print("Listening on http://127.0.0.1:8080")
+    print("=" * 60)
+    app.run(host="127.0.0.1", port=8080, debug=False)
