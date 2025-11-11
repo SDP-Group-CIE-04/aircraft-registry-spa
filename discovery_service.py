@@ -2,7 +2,8 @@
 """
 RSAS Discovery Service - USB Serial
 - GET /devices  -> detect USB ESP32 modules, ask GET_INFO for ESN/status
-- POST /activate -> send BASIC_SET operator_id|aircraft_id[|serial_number] to selected serial port
+- POST /activate -> send BASIC_SET operator_id|aircraft_id|rid_id[|serial_number] to selected serial port
+  (RID ID is automatically generated from operator_id, aircraft_id, and esn)
 - GET /health
 """
 
@@ -12,12 +13,27 @@ import serial
 import serial.tools.list_ports
 import json
 import time
+import re
 
 app = Flask(__name__)
 CORS(app)
 
 BAUD = 115200
 DISCOVERY_VIDS = {0x10C4, 0x1A86, 0x303A}  # Silicon Labs, QinHeng, Espressif
+
+def generate_rid_id(operator_id, aircraft_id, module_esn):
+    """
+    Generate a RID ID based on operator, aircraft, and module information
+    Format: RID-{operator_short}-{aircraft_short}-{module_esn_short}
+    """
+    # Extract short identifiers from UUIDs (first 8 chars)
+    operator_short = operator_id[:8].upper() if operator_id else "UNKNOWN"
+    aircraft_short = aircraft_id[:8].upper() if aircraft_id else "UNKNOWN"
+    # Clean ESN: remove non-alphanumeric and take first 8 chars
+    esn_clean = re.sub(r'[^A-Z0-9]', '', module_esn.upper())[:8] if module_esn else "UNKNOWN"
+    
+    # Format: RID-{OP}-{AC}-{ESN}
+    return f"RID-{operator_short}-{aircraft_short}-{esn_clean}"
 
 def read_lines_with_timeout(ser, timeout_s=0.9):
     start = time.time()
@@ -92,6 +108,7 @@ def activate():
         "esn": "optional"
       }
     }
+    Note: RID ID is automatically generated from operator_id, aircraft_id, and esn
     """
     data = request.json or {}
     device_port = data.get("device_port")
@@ -105,13 +122,20 @@ def activate():
     if not operator_id or not aircraft_id:
         return jsonify({"success": False, "error": "operator_id and aircraft_id are required"}), 400
 
+    # Generate RID ID automatically
+    rid_id = generate_rid_id(operator_id, aircraft_id, esn)
+
     try:
         ser = serial.Serial(device_port, BAUD, timeout=1.0)
         time.sleep(0.3)
 
+        # Build command with all required fields
         pairs = [f"operator_id={operator_id}", f"aircraft_id={aircraft_id}"]
         if esn:
             pairs.append(f"serial_number={esn}")
+        # Always include the generated RID ID
+        pairs.append(f"rid_id={rid_id}")
+        
         cmd = "BASIC_SET " + "|".join(pairs) + "\n"
 
         ser.write(cmd.encode("utf-8"))
@@ -123,7 +147,8 @@ def activate():
         return jsonify({
             "success": True if ok else True,  # board often returns text even when successful
             "sent_command": cmd.strip(),
-            "esp32_response": resp
+            "esp32_response": resp,
+            "rid_id": rid_id  # Return the generated RID ID
         })
     except serial.SerialException as e:
         return jsonify({"success": False, "error": f"Serial error: {e}"}), 503

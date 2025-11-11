@@ -94,6 +94,24 @@ export const registerAircraft = aircraftData =>
 export const getOperators = () => apiRequest('operators');
 
 /**
+ * Get all aircraft
+ * @returns {Promise} Promise that resolves with the response data
+ */
+export const getAircraft = () => apiRequest('aircraft');
+
+/**
+ * Get all pilots
+ * @returns {Promise} Promise that resolves with the response data
+ */
+export const getPilots = () => apiRequest('pilots');
+
+/**
+ * Get all contacts
+ * @returns {Promise} Promise that resolves with the response data
+ */
+export const getContacts = () => apiRequest('contacts');
+
+/**
  * Get aircraft for a given operator
  * Tries querystring first (?operator=<id>), falls back to nested route (operators/<id>/aircraft)
  * @param {string} operatorId
@@ -114,6 +132,33 @@ export const getAircraftByOperator = async (operatorId) => {
   }
 };
 
+/**
+ * Update an aircraft with RID ID and module information
+ * @param {string} aircraftId - Aircraft UUID
+ * @param {Object} updateData - Data to update (rid_id, module_esn, etc.)
+ * @returns {Promise} Promise that resolves with the updated aircraft data
+ */
+export const updateAircraft = (aircraftId, updateData) =>
+  apiRequest(`aircraft/${aircraftId}`, 'PATCH', updateData);
+
+/**
+ * Generate a RID ID based on operator, aircraft, and module information
+ * Format: RID-{operator_short}-{aircraft_short}-{module_esn}
+ * @param {string} operatorId - Operator UUID
+ * @param {string} aircraftId - Aircraft UUID
+ * @param {string} moduleEsn - Module ESN
+ * @returns {string} Generated RID ID
+ */
+export const generateRidId = (operatorId, aircraftId, moduleEsn) => {
+  // Extract short identifiers from UUIDs (first 8 chars)
+  const operatorShort = operatorId.substring(0, 8).toUpperCase();
+  const aircraftShort = aircraftId.substring(0, 8).toUpperCase();
+  const esnShort = moduleEsn.replace(/[^A-Z0-9]/gi, '').substring(0, 8).toUpperCase();
+  
+  // Format: RID-{OP}-{AC}-{ESN}
+  return `RID-${operatorShort}-${aircraftShort}-${esnShort}`;
+};
+
 // Export all functions as a default object
 export default {
   registerOperator,
@@ -121,5 +166,10 @@ export default {
   registerContact,
   registerAircraft,
   getOperators,
+  getAircraft,
   getAircraftByOperator,
+  getPilots,
+  getContacts,
+  updateAircraft,
+  generateRidId,
 };

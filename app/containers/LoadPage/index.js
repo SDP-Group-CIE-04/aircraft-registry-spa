@@ -281,6 +281,38 @@ export default function LoadPage() {
     setError(null);
 
     try {
+      // Validate inputs before generating RID ID
+      if (!operatorId) {
+        throw new Error('Operator ID is missing');
+      }
+      if (!selectedAircraft?.id) {
+        throw new Error('Aircraft ID is missing');
+      }
+      if (!selectedDevice?.esn) {
+        throw new Error('Device ESN is missing');
+      }
+
+      // Generate RID ID
+      const ridId = apiService.generateRidId(
+        operatorId,
+        selectedAircraft.id,
+        selectedDevice.esn
+      );
+
+      console.log('[DEBUG] ========================================');
+      console.log('[DEBUG] RID ID Generation:');
+      console.log('[DEBUG]   Operator ID:', operatorId);
+      console.log('[DEBUG]   Aircraft ID:', selectedAircraft.id);
+      console.log('[DEBUG]   Device ESN:', selectedDevice.esn);
+      console.log('[DEBUG]   Generated RID ID:', ridId);
+      console.log('[DEBUG]   RID ID type:', typeof ridId);
+      console.log('[DEBUG]   RID ID length:', ridId?.length);
+      console.log('[DEBUG] ========================================');
+      
+      if (!ridId || ridId.length === 0) {
+        throw new Error('Failed to generate RID ID');
+      }
+
       // Normalize mass to kilograms if backend stores grams
       const rawMass = selectedAircraft.mass;
       const mass =
@@ -297,8 +329,15 @@ export default function LoadPage() {
           model: selectedAircraft.model || selectedAircraft.popular_name || '',
           mass,
           esn: selectedDevice.esn,
+          rid_id: ridId,  // Add RID ID to activation data
         },
       };
+
+      console.log('[DEBUG] ========================================');
+      console.log('[DEBUG] Activation Data Being Sent:');
+      console.log(JSON.stringify(activationData, null, 2));
+      console.log('[DEBUG] RID ID in activationData:', activationData.aircraft_data.rid_id);
+      console.log('[DEBUG] ========================================');
 
       const response = await fetch(`${DISCOVERY_SERVICE_URL}/activate`, {
         method: 'POST',
@@ -317,6 +356,7 @@ export default function LoadPage() {
             cmd: result?.sent_command || 'BASIC_SET ...',
             msg: result?.error || 'Activation failed',
             time: now,
+            ridId: null,
           },
         }));
         throw new Error(result?.error || 'Activation failed');
@@ -327,13 +367,35 @@ export default function LoadPage() {
       setDeviceConsole(prev => ({
         ...prev,
         [selectedDevice.port]: {
-          cmd: result?.sent_command || `BASIC_SET operator_id=${operatorId}|aircraft_id=${selectedAircraft.id}`,
+          cmd: result?.sent_command || `BASIC_SET operator_id=${operatorId}|aircraft_id=${selectedAircraft.id}|rid_id=${ridId}`,
           msg: deviceReply,
           time: now,
+          ridId: ridId,
         },
       }));
 
-      showNotification(`Module ${selectedDevice.esn} activated. Device: ${deviceReply}`, 'success');
+      // Save RID ID to backend aircraft record
+      try {
+        await apiService.updateAircraft(selectedAircraft.id, {
+          rid_id: ridId,
+          module_esn: selectedDevice.esn,
+          module_port: selectedDevice.port,
+          activated_at: new Date().toISOString(),
+        });
+        console.log('RID ID saved to backend:', ridId);
+      } catch (backendError) {
+        console.error('Failed to save RID ID to backend:', backendError);
+        // Don't fail the activation if backend save fails, but log it
+        showNotification(
+          `Module activated but failed to save RID ID to backend: ${backendError.message}`,
+          'warning'
+        );
+      }
+
+      showNotification(
+        `Module ${selectedDevice.esn} activated with RID ID: ${ridId}`,
+        'success'
+      );
 
       // Keep selection so user can see console; re-scan to reflect status
       setTimeout(() => scanForDevices(), 1200);
@@ -355,6 +417,16 @@ export default function LoadPage() {
         <Typography variant="subtitle2" gutterBottom>
           Device Console
         </Typography>
+        {entry.ridId && (
+          <Box mb={1.5} p={1.5} style={{ backgroundColor: '#e8f5e9', borderRadius: 4, border: '1px solid #4caf50' }}>
+            <Typography variant="subtitle2" style={{ fontWeight: 600, color: '#2e7d32' }}>
+              RID ID: {entry.ridId}
+            </Typography>
+            <Typography variant="caption" style={{ color: '#388e3c' }}>
+              This RID ID has been loaded into the ESP32 and saved to the backend
+            </Typography>
+          </Box>
+        )}
         <Box className={classes.consoleBox}>
           <div>
             <span className={classes.consoleLabel}>Sent:</span>
