@@ -1,4 +1,5 @@
 // app/services/apiService.js
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Generate a test token for authentication
@@ -142,21 +143,70 @@ export const updateAircraft = (aircraftId, updateData) =>
   apiRequest(`aircraft/${aircraftId}`, 'PATCH', updateData);
 
 /**
- * Generate a RID ID based on operator, aircraft, and module information
- * Format: RID-{operator_short}-{aircraft_short}-{module_esn}
+ * Create/Activate a RID module
+ * @param {Object} moduleData - RID module data
+ * @param {string} moduleData.rid_id - RID ID (UUID v4, required or auto-generated)
+ * @param {string} moduleData.operator - Operator UUID (required)
+ * @param {string} moduleData.aircraft - Aircraft UUID (optional)
+ * @param {string} moduleData.module_esn - Electronic Serial Number (required, unique)
+ * @param {string} moduleData.module_port - USB port (optional)
+ * @param {string} moduleData.module_type - Module type (optional, defaults to "ESP32-S3")
+ * @param {string} moduleData.status - Status (optional, defaults to "active")
+ * @param {string} moduleData.activation_status - temporary or permanent (optional, defaults to "temporary")
+ * @returns {Promise} Promise that resolves with the created RID module data
+ */
+export const createRidModule = (moduleData) =>
+  apiRequest('rid-modules', 'POST', moduleData);
+
+/**
+ * Check if a RID module exists by ESN
+ * @param {string} moduleEsn - Electronic Serial Number
+ * @returns {Promise} Promise that resolves with the module data or null if not found
+ */
+export const getRidModuleByEsn = async (moduleEsn) => {
+  try {
+    return await apiRequest(`rid-modules/by-esn/${encodeURIComponent(moduleEsn)}`, 'GET');
+  } catch (error) {
+    if (error.message.includes('404') || error.message.includes('Not found')) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+/**
+ * Generate a RID ID as a UUID
+ * Format: e0c8a7f2-d6f0-4f33-a101-7b5b93da565f
  * @param {string} operatorId - Operator UUID
  * @param {string} aircraftId - Aircraft UUID
  * @param {string} moduleEsn - Module ESN
- * @returns {string} Generated RID ID
+ * @returns {string} Generated RID ID (UUID format)
  */
 export const generateRidId = (operatorId, aircraftId, moduleEsn) => {
-  // Extract short identifiers from UUIDs (first 8 chars)
-  const operatorShort = operatorId.substring(0, 8).toUpperCase();
-  const aircraftShort = aircraftId.substring(0, 8).toUpperCase();
-  const esnShort = moduleEsn.replace(/[^A-Z0-9]/gi, '').substring(0, 8).toUpperCase();
+  console.log('[RID_ID_GEN] generateRidId called - NEW UUID V4 CODE VERSION');
+  // Generate a UUID v4 for the RID ID
+  // Use crypto.randomUUID() if available (modern browsers), otherwise fallback to uuid library
+  let ridId;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    ridId = crypto.randomUUID();
+    console.log('[RID_ID_GEN] Used crypto.randomUUID():', ridId);
+  } else {
+    // Fallback: use uuid library if crypto.randomUUID is not available
+    ridId = uuidv4();
+    console.log('[RID_ID_GEN] Used uuidv4() fallback:', ridId);
+  }
   
-  // Format: RID-{OP}-{AC}-{ESN}
-  return `RID-${operatorShort}-${aircraftShort}-${esnShort}`;
+  // Validate that we got a proper UUID format (safety check)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(ridId)) {
+    console.error('[ERROR] Generated RID ID is not a valid UUID:', ridId);
+    // Force generate a new one using uuid library as last resort
+    ridId = uuidv4();
+    console.log('[RID_ID_GEN] Regenerated with uuidv4() after validation failed:', ridId);
+  }
+  
+  console.log('[RID_ID_GEN] Final RID ID:', ridId);
+  return ridId;
 };
 
 // Export all functions as a default object
@@ -172,4 +222,6 @@ export default {
   getContacts,
   updateAircraft,
   generateRidId,
+  createRidModule,
+  getRidModuleByEsn,
 };

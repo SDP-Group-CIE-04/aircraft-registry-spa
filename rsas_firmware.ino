@@ -52,7 +52,7 @@ static const char* fieldNames[MAX_FIELDS] = {
   "rid_id", "secure_key", "aircraft_type",
   "aircraft_id", "field_8", "field_9", "field_10"
 };
-static const int fieldSizes[MAX_FIELDS] = {24, 16, 32, 37, 32, 4, 24, 12, 12, 12};
+static const int fieldSizes[MAX_FIELDS] = {37, 16, 32, 37, 32, 4, 37, 12, 12, 12};  // operator_id, aircraft_id, rid_id all need 37 for UUID
 
 // ---------- State ----------
 bool is_registered = false;
@@ -161,6 +161,19 @@ static void handleInput(String s) {
   if (s == "GET_INFO") {
     const char* status = is_permanent ? "permanent" : (is_registered ? "temporary" : "ready");
     Serial.printf("{\"esn\":\"%s\",\"status\":\"%s\"}\n", chipEsn().c_str(), status);
+    return;
+  }
+
+  // GET_FIELDS -> JSON with stored IDs
+  if (s == "GET_FIELDS") {
+    int opIdx = getFieldIndex("operator_id");
+    int acIdx = getFieldIndex("aircraft_id");
+    int ridIdx = getFieldIndex("rid_id");
+    String opId = readField(opIdx);
+    String acId = readField(acIdx);
+    String ridId = readField(ridIdx);
+    Serial.printf("{\"operator_id\":\"%s\",\"aircraft_id\":\"%s\",\"rid_id\":\"%s\"}\n", 
+                  opId.c_str(), acId.c_str(), ridId.c_str());
     return;
   }
 

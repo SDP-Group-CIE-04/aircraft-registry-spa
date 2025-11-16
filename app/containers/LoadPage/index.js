@@ -13,6 +13,11 @@ import {
   Chip,
   Snackbar,
   Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
 import RefreshIcon from '@material-ui/icons/Refresh';
@@ -147,6 +152,13 @@ export default function LoadPage() {
 
   // NEW: simple per-device console { [port]: { cmd, msg, time } }
   const [deviceConsole, setDeviceConsole] = useState({});
+  
+  // Confirmation dialog state for override warning
+  const [overrideDialog, setOverrideDialog] = useState({
+    open: false,
+    existingIds: null,
+    pendingActivation: null, // Store the activation function to call after confirmation
+  });
 
   // Scan on mount (fixed stray char)
   useEffect(() => {
@@ -262,7 +274,57 @@ export default function LoadPage() {
     setSelectedAircraftId(String(e.target.value));
   };
 
-  const handleActivate = async () => {
+  // Check for existing IDs in the module
+  const checkExistingIds = async (devicePort) => {
+    try {
+      console.log('[DEBUG] Checking for existing IDs on port:', devicePort);
+      const response = await fetch(
+        `${DISCOVERY_SERVICE_URL}/device-info?device_port=${encodeURIComponent(devicePort)}`
+      );
+      console.log('[DEBUG] Device info response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn('[DEBUG] Failed to get device info:', response.status, errorText);
+        return null; // Error reading, but don't block activation
+      }
+      
+      const data = await response.json();
+      console.log('[DEBUG] Device info data received:', data);
+      
+      // Check if any IDs are stored (non-empty strings after trimming)
+      const hasOperatorId = data.operator_id && data.operator_id.trim().length > 0;
+      const hasAircraftId = data.aircraft_id && data.aircraft_id.trim().length > 0;
+      const hasRidId = data.rid_id && data.rid_id.trim().length > 0;
+      
+      console.log('[DEBUG] ID check results:', {
+        hasOperatorId,
+        hasAircraftId,
+        hasRidId,
+        operator_id: data.operator_id,
+        aircraft_id: data.aircraft_id,
+        rid_id: data.rid_id
+      });
+      
+      if (hasOperatorId || hasAircraftId || hasRidId) {
+        console.log('[DEBUG] Existing IDs found, will show confirmation dialog');
+        return {
+          operator_id: hasOperatorId ? data.operator_id.trim() : '',
+          aircraft_id: hasAircraftId ? data.aircraft_id.trim() : '',
+          rid_id: hasRidId ? data.rid_id.trim() : ''
+        };
+      }
+      
+      console.log('[DEBUG] No existing IDs found');
+      return null; // No IDs stored
+    } catch (err) {
+      console.error('[DEBUG] Failed to check existing IDs:', err);
+      return null; // Don't block activation on check failure
+    }
+  };
+
+  // Perform the actual activation
+  const performActivation = async () => {
     if (!selectedDevice) {
       showNotification('Please select a device first', 'error');
       return;
@@ -307,6 +369,7 @@ export default function LoadPage() {
       console.log('[DEBUG]   Generated RID ID:', ridId);
       console.log('[DEBUG]   RID ID type:', typeof ridId);
       console.log('[DEBUG]   RID ID length:', ridId?.length);
+      console.log('[DEBUG]   Is UUID format?', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ridId));
       console.log('[DEBUG] ========================================');
       
       if (!ridId || ridId.length === 0) {
@@ -374,20 +437,26 @@ export default function LoadPage() {
         },
       }));
 
-      // Save RID ID to backend aircraft record
+      // Save RID module to backend (separate from aircraft record)
       try {
-        await apiService.updateAircraft(selectedAircraft.id, {
+        const moduleData = {
           rid_id: ridId,
+          operator: operatorId,
+          aircraft: selectedAircraft.id,
           module_esn: selectedDevice.esn,
           module_port: selectedDevice.port,
-          activated_at: new Date().toISOString(),
-        });
-        console.log('RID ID saved to backend:', ridId);
+          module_type: 'ESP32-S3',
+          status: 'active',
+          activation_status: 'temporary', // Can be updated to 'permanent' if module is locked
+        };
+        
+        const savedModule = await apiService.createRidModule(moduleData);
+        console.log('RID module saved to backend:', savedModule);
       } catch (backendError) {
-        console.error('Failed to save RID ID to backend:', backendError);
+        console.error('Failed to save RID module to backend:', backendError);
         // Don't fail the activation if backend save fails, but log it
         showNotification(
-          `Module activated but failed to save RID ID to backend: ${backendError.message}`,
+          `Module activated but failed to save RID module to backend: ${backendError.message}`,
           'warning'
         );
       }
@@ -405,6 +474,49 @@ export default function LoadPage() {
     } finally {
       setActivating(false);
     }
+  };
+
+  // Handle activate button click - check for existing IDs first
+  const handleActivate = async () => {
+    console.log('[DEBUG] handleActivate called');
+    if (!selectedDevice) {
+      showNotification('Please select a device first', 'error');
+      return;
+    }
+
+    console.log('[DEBUG] Selected device:', selectedDevice.port);
+    
+    // Check for existing IDs
+    const existingIds = await checkExistingIds(selectedDevice.port);
+    console.log('[DEBUG] checkExistingIds returned:', existingIds);
+    
+    if (existingIds) {
+      console.log('[DEBUG] Showing override confirmation dialog');
+      // Show confirmation dialog
+      setOverrideDialog({
+        open: true,
+        existingIds,
+        pendingActivation: performActivation,
+      });
+    } else {
+      console.log('[DEBUG] No existing IDs, proceeding with activation');
+      // No existing IDs, proceed directly
+      await performActivation();
+    }
+  };
+
+  // Handle dialog confirmation
+  const handleConfirmOverride = () => {
+    const pendingActivation = overrideDialog.pendingActivation;
+    setOverrideDialog({ open: false, existingIds: null, pendingActivation: null });
+    if (pendingActivation) {
+      pendingActivation();
+    }
+  };
+
+  // Handle dialog cancellation
+  const handleCancelOverride = () => {
+    setOverrideDialog({ open: false, existingIds: null, pendingActivation: null });
   };
 
   const renderDeviceConsole = (device) => {
@@ -714,6 +826,60 @@ export default function LoadPage() {
           </Paper>
         </div>
       </div>
+
+      {/* Override Confirmation Dialog */}
+      <Dialog
+        open={overrideDialog.open}
+        onClose={handleCancelOverride}
+        aria-labelledby="override-dialog-title"
+        aria-describedby="override-dialog-description"
+      >
+        <DialogTitle id="override-dialog-title">
+          Module Already Configured
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="override-dialog-description">
+            This module already has IDs stored. Overwriting will replace the existing configuration.
+          </DialogContentText>
+          {overrideDialog.existingIds && (
+            <Box mt={2} p={2} style={{ backgroundColor: '#fff3cd', borderRadius: 4, border: '1px solid #ffc107' }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Current Configuration:
+              </Typography>
+              {overrideDialog.existingIds.operator_id && (
+                <Typography variant="body2">
+                  <strong>Operator ID:</strong> {overrideDialog.existingIds.operator_id}
+                </Typography>
+              )}
+              {overrideDialog.existingIds.aircraft_id && (
+                <Typography variant="body2">
+                  <strong>Aircraft ID:</strong> {overrideDialog.existingIds.aircraft_id}
+                </Typography>
+              )}
+              {overrideDialog.existingIds.rid_id && (
+                <Typography variant="body2">
+                  <strong>RID ID:</strong> {overrideDialog.existingIds.rid_id}
+                </Typography>
+              )}
+            </Box>
+          )}
+          <DialogContentText style={{ marginTop: 16 }}>
+            Are you sure you want to proceed? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelOverride} color="primary">
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleConfirmOverride} 
+            variant="contained"
+            className={classes.actionButton}
+          >
+            Override and Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={notification.open}
