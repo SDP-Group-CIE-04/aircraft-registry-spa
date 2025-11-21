@@ -8,6 +8,7 @@ import { gotCollection, failedToGetCollection } from '../App/actions';
 
 import request from '../../utils/request';
 import { makeSelectCollectionName, makeSelectToken } from '../App/selectors';
+import { API_URL } from '../../utils/apiConfig';
 
 /**
  * Github repos request/response handler
@@ -15,9 +16,8 @@ import { makeSelectCollectionName, makeSelectToken } from '../App/selectors';
 export function* getCollection() {
   const collectionName = yield select(makeSelectCollectionName());
   const token = yield select(makeSelectToken());
-  const requestURL = `${window.location.protocol}//${window.location.hostname}${
-    window.location.port ? `:${window.location.port}` : ''
-  }/api/v1/${collectionName}`;
+  // Use the configured API URL instead of window.location
+  const requestURL = `${API_URL}/${collectionName}`;
   try {
     const collection = yield call(request, requestURL, {
       method: 'GET',

@@ -1,34 +1,45 @@
 // app/services/apiService.js
 import { v4 as uuidv4 } from 'uuid';
+import { API_URL, getJwtToken, removeJwtToken } from '../utils/apiConfig';
 
-/**
- * Generate a test token for authentication
- * @returns {string} Generated JWT token
- */
-const generateTestToken = () =>
-  // In a real app, you'd implement proper JWT generation
-  // This is a simplified version that mimics the Python code
-  // For testing, we're using a pre-generated token that would be valid
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20iLCJleHAiOjE3MTY1NjgwMDB9.iBe9wr72rJoXFZY_W4F8ZhFsEtW9NH5YWjnG9rEaXLc';
 /**
  * Get authorization headers for API requests
+ * Uses JWT token from localStorage or returns headers without auth if token is missing
  * @returns {Object} Headers object
  */
-const getAuthHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${generateTestToken()}`,
-});
+const getAuthHeaders = () => {
+  const token = getJwtToken();
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    // Debug logging in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[API] Using JWT token for authentication');
+    }
+  } else {
+    // Warn if no token in development
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[API] No JWT token found. Request will be unauthenticated.');
+    }
+  }
+
+  return headers;
+};
 
 /**
- * Make an API request
- * @param {string} endpoint - API endpoint
- * @param {string} method - HTTP method
- * @param {Object} data - Request data
+ * Make an API request to the Registration Backend
+ * @param {string} endpoint - API endpoint (e.g., 'operators', 'aircraft', 'operators/{uuid}/aircraft')
+ * @param {string} method - HTTP method (GET, POST, PATCH, PUT, DELETE)
+ * @param {Object} data - Request data (for POST/PATCH/PUT requests)
  * @returns {Promise} Promise that resolves with the response data
  */
 const apiRequest = async (endpoint, method = 'GET', data = null) => {
-  const baseUrl = 'http://localhost:8000/api/v1';
-  const url = `${baseUrl}/${endpoint}`;
+  // Remove leading slash if present to avoid double slashes
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  const url = `${API_URL}/${cleanEndpoint}`;
 
   const options = {
     method,
@@ -39,19 +50,49 @@ const apiRequest = async (endpoint, method = 'GET', data = null) => {
   try {
     const response = await fetch(url, options);
 
+    // Handle 401 Unauthorized - token might be expired or invalid
+    if (response.status === 401) {
+      // Clear invalid token
+      removeJwtToken();
+      throw new Error(
+        'Authentication failed. Please log in again or provide a valid JWT token.',
+      );
+    }
+
     // Check if the response was ok (status code 200-299)
     if (!response.ok) {
       // Try to parse error response
-      const errorData = await response.json().catch(() => null);
-      throw new Error(
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = { detail: `API request failed with status ${response.status}` };
+      }
+
+      // Handle different error response formats
+      const errorMessage =
         errorData?.detail ||
-          `API request failed with status ${response.status}`,
-      );
+        errorData?.message ||
+        errorData?.error ||
+        `API request failed with status ${response.status}`;
+
+      throw new Error(errorMessage);
+    }
+
+    // Handle 204 No Content (successful but no response body)
+    if (response.status === 204) {
+      return null;
     }
 
     // Parse successful response
     return await response.json();
   } catch (error) {
+    // Re-throw with more context if it's a network error
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error(
+        `Network error: Unable to connect to ${API_URL}. Please check your internet connection and ensure the API server is running.`,
+      );
+    }
     throw error;
   }
 };
@@ -90,15 +131,31 @@ export const registerAircraft = aircraftData =>
 
 /**
  * Get all operators
- * @returns {Promise} Promise that resolves with the response data
+ * @returns {Promise} Promise that resolves with the response data (array or paginated result)
  */
-export const getOperators = () => apiRequest('operators');
+export const getOperators = async () => {
+  const result = await apiRequest('operators');
+  // Handle paginated responses
+  return Array.isArray(result) ? result : result?.results || [];
+};
 
 /**
  * Get all aircraft
- * @returns {Promise} Promise that resolves with the response data
+ * @returns {Promise} Promise that resolves with the response data (array or paginated result)
  */
-export const getAircraft = () => apiRequest('aircraft');
+export const getAircraft = async () => {
+  const result = await apiRequest('aircraft');
+  // Handle paginated responses
+  return Array.isArray(result) ? result : result?.results || [];
+};
+
+/**
+ * Get aircraft details by UUID
+ * @param {string} aircraftUuid - Aircraft UUID
+ * @returns {Promise} Promise that resolves with the aircraft details
+ */
+export const getAircraftDetails = aircraftUuid =>
+  apiRequest(`aircraft/${aircraftUuid}`);
 
 /**
  * Get all pilots
@@ -113,9 +170,17 @@ export const getPilots = () => apiRequest('pilots');
 export const getContacts = () => apiRequest('contacts');
 
 /**
+ * Get operator details by UUID
+ * @param {string} operatorUuid - Operator UUID
+ * @returns {Promise} Promise that resolves with the operator details
+ */
+export const getOperatorDetails = operatorUuid =>
+  apiRequest(`operators/${operatorUuid}`);
+
+/**
  * Get aircraft for a given operator
- * Tries querystring first (?operator=<id>), falls back to nested route (operators/<id>/aircraft)
- * @param {string} operatorId
+ * Uses the nested route: GET /api/v1/operators/{uuid}/aircraft
+ * @param {string} operatorId - Operator UUID
  * @returns {Promise<Array>} list of aircraft
  */
 export const getAircraftByOperator = async (operatorId) => {
@@ -123,13 +188,15 @@ export const getAircraftByOperator = async (operatorId) => {
     throw new Error('operatorId is required');
   }
   try {
-    // Common REST filter style
-    const list = await apiRequest(`aircraft?operator=${encodeURIComponent(operatorId)}`, 'GET');
-    return Array.isArray(list) ? list : (list?.results || []);
-  } catch (firstErr) {
-    // Fallback to nested route
-    const list = await apiRequest(`operators/${encodeURIComponent(operatorId)}/aircraft`, 'GET');
-    return Array.isArray(list) ? list : (list?.results || []);
+    // Use the nested route as per API specification
+    const list = await apiRequest(
+      `operators/${encodeURIComponent(operatorId)}/aircraft`,
+      'GET',
+    );
+    return Array.isArray(list) ? list : list?.results || [];
+  } catch (error) {
+    console.error('Error fetching aircraft for operator:', error);
+    throw error;
   }
 };
 
@@ -175,6 +242,15 @@ export const getRidModuleByEsn = async (moduleEsn) => {
 };
 
 /**
+ * Update a RID module
+ * @param {string} moduleId - RID module UUID
+ * @param {Object} updateData - Data to update
+ * @returns {Promise} Promise that resolves with the updated RID module data
+ */
+export const updateRidModule = (moduleId, updateData) =>
+  apiRequest(`rid-modules/${moduleId}`, 'PATCH', updateData);
+
+/**
  * Generate a RID ID as a UUID
  * Format: e0c8a7f2-d6f0-4f33-a101-7b5b93da565f
  * @param {string} operatorId - Operator UUID
@@ -216,7 +292,9 @@ export default {
   registerContact,
   registerAircraft,
   getOperators,
+  getOperatorDetails,
   getAircraft,
+  getAircraftDetails,
   getAircraftByOperator,
   getPilots,
   getContacts,
@@ -224,4 +302,5 @@ export default {
   generateRidId,
   createRidModule,
   getRidModuleByEsn,
+  updateRidModule,
 };

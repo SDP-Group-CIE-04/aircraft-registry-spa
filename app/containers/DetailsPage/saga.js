@@ -8,6 +8,7 @@ import { failedFetchingDetailsAction, gotDetailsAction } from './actions';
 
 import request from '../../utils/request';
 import { makeSelectToken } from '../App/selectors';
+import { API_URL } from '../../utils/apiConfig';
 
 /**
  * Github repos request/response handler
@@ -15,9 +16,8 @@ import { makeSelectToken } from '../App/selectors';
 export function* getDetails(action) {
   const { id, detailsType, privileged } = action;
   const token = yield select(makeSelectToken());
-  const requestURL = `${window.location.protocol}//${window.location.hostname}${
-    window.location.port ? `:${window.location.port}` : ''
-  }/api/v1/${detailsType}/${id}${privileged ? '/privileged' : ''}`;
+  // Use the configured API URL instead of window.location
+  const requestURL = `${API_URL}/${detailsType}/${id}${privileged ? '/privileged' : ''}`;
   try {
     const collection = yield call(request, requestURL, {
       method: 'GET',

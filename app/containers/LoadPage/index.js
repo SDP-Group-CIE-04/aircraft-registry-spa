@@ -437,8 +437,11 @@ export default function LoadPage() {
         },
       }));
 
-      // Save RID module to backend (separate from aircraft record)
+      // Save or update RID module to backend (separate from aircraft record)
       try {
+        // Check if module already exists by ESN
+        const existingModule = await apiService.getRidModuleByEsn(selectedDevice.esn);
+        
         const moduleData = {
           rid_id: ridId,
           operator: operatorId,
@@ -450,10 +453,20 @@ export default function LoadPage() {
           activation_status: 'temporary', // Can be updated to 'permanent' if module is locked
         };
         
-        const savedModule = await apiService.createRidModule(moduleData);
-        console.log('RID module saved to backend:', savedModule);
+        let savedModule;
+        if (existingModule) {
+          // Update existing module
+          console.log('Updating existing RID module:', existingModule.id);
+          savedModule = await apiService.updateRidModule(existingModule.id, moduleData);
+          console.log('RID module updated in backend:', savedModule);
+        } else {
+          // Create new module
+          console.log('Creating new RID module');
+          savedModule = await apiService.createRidModule(moduleData);
+          console.log('RID module saved to backend:', savedModule);
+        }
       } catch (backendError) {
-        console.error('Failed to save RID module to backend:', backendError);
+        console.error('Failed to save/update RID module to backend:', backendError);
         // Don't fail the activation if backend save fails, but log it
         showNotification(
           `Module activated but failed to save RID module to backend: ${backendError.message}`,

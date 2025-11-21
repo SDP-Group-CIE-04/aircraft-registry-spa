@@ -112,12 +112,18 @@ module.exports = options => ({
     new Dotenv({
       path: './process.env',
       systemvars: true,
+      // Expose all variables to the client (be careful with sensitive data)
+      // Variables prefixed with REACT_APP_ are safe to expose
+      safe: false,
     }),
     // Always expose NODE_ENV to webpack, in order to use `process.env.NODE_ENV`
     // inside your code for any environment checks; Terser will automatically
     // drop any unreachable code.
     new webpack.EnvironmentPlugin({
       NODE_ENV: 'development',
+      // Explicitly expose REACT_APP_ variables
+      REACT_APP_REGISTRATION_API_URL: process.env.REACT_APP_REGISTRATION_API_URL,
+      REACT_APP_API_VERSION: process.env.REACT_APP_API_VERSION,
     }),
   ]),
   resolve: {

@@ -17,6 +17,7 @@ import {
 import bgImage from '../../images/blurBg.jpg';
 import { OPERATOR_TYPES, COUNTRIES, INITIAL_ADDRESS } from './constants';
 import * as apiService from '../../services/apiService';
+import { isAuthenticated } from '../../utils/loginHelper';
 import history from '../../utils/history';
 
 const useStyles = makeStyles(() => ({
@@ -313,6 +314,19 @@ export default function RegistrationPage() {
 
   const handleSubmit = async e => {
     e.preventDefault();
+    
+    // Check if user is authenticated
+    if (!isAuthenticated()) {
+      showNotification(
+        'Please log in first. Redirecting to login page...',
+        'error'
+      );
+      setTimeout(() => {
+        history.push('/login');
+      }, 2000);
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -335,7 +349,18 @@ export default function RegistrationPage() {
       resetForm();
       showNotification('Registration successful!', 'success');
     } catch (error) {
-      showNotification(`Registration failed: ${error.message}`, 'error');
+      // Check if it's an authentication error
+      if (error.message.includes('Authentication failed') || error.message.includes('401')) {
+        showNotification(
+          'Authentication failed. Please log in again.',
+          'error'
+        );
+        setTimeout(() => {
+          history.push('/login');
+        }, 2000);
+      } else {
+        showNotification(`Registration failed: ${error.message}`, 'error');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -1414,6 +1439,32 @@ export default function RegistrationPage() {
           <Typography variant="h4" gutterBottom>
             Register New Entity
           </Typography>
+          
+          {/* Authentication Status */}
+          {!isAuthenticated() && (
+            <Box
+              p={2}
+              mb={2}
+              style={{
+                backgroundColor: '#fff3cd',
+                borderRadius: 4,
+                border: '1px solid #ffc107',
+              }}
+            >
+              <Typography variant="body2" style={{ color: '#856404' }}>
+                ⚠️ You are not logged in. Please{' '}
+                <Button
+                  size="small"
+                  onClick={() => history.push('/login')}
+                  style={{ textTransform: 'none', padding: 0, minWidth: 'auto' }}
+                >
+                  log in
+                </Button>
+                {' '}to register entities.
+              </Typography>
+            </Box>
+          )}
+
           <form onSubmit={handleSubmit} className={classes.form}>
             <TextField
               className={classes.textField}

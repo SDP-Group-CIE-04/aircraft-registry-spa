@@ -3,7 +3,10 @@ const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 
-const BASE_URL = 'http://localhost:8000/api/v1';
+// Use environment variable or fallback to production API
+const BASE_URL = process.env.REACT_APP_REGISTRATION_API_URL
+  ? `${process.env.REACT_APP_REGISTRATION_API_URL}/api/v1`
+  : 'https://register-ku.duckdns.org/api/v1';
 
 const generateTestToken = () => {
   const payload = {
