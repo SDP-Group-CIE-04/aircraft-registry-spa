@@ -16,7 +16,6 @@ import DetailsPage from '../DetailsPage/Loadable';
 import NotFoundPage from '../NotFoundPage/Loadable';
 import RegistrationPage from '../RegistrationPage/Loadable';
 import LoadPage from '../LoadPage/Loadable';
-import LoginPage from '../LoginPage/Loadable';
 
 import { useAuth0 } from '../Auth';
 
@@ -51,7 +50,6 @@ export default function App() {
         </Center>
       ) : (
         <Switch>
-          <Route exact path="/login" component={LoginPage} />
           <Route exact path="/" component={LandingPage} />
           <Route exact path="/register" component={RegistrationPage} />
           <Route

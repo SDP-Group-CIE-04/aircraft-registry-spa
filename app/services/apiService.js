@@ -54,9 +54,19 @@ const apiRequest = async (endpoint, method = 'GET', data = null) => {
     if (response.status === 401) {
       // Clear invalid token
       removeJwtToken();
-      throw new Error(
-        'Authentication failed. Please log in again or provide a valid JWT token.',
-      );
+      // Try to parse error response for more details
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = { detail: 'Unauthorized: Invalid or expired token' };
+      }
+      const errorMessage =
+        errorData?.detail ||
+        errorData?.message ||
+        errorData?.error ||
+        'Unauthorized: Invalid or expired token';
+      throw new Error(errorMessage);
     }
 
     // Check if the response was ok (status code 200-299)
