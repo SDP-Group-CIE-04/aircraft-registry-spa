@@ -1,0 +1,182 @@
+{
+  "app": {
+    "name": "Airegister",
+    "framework": "React",
+    "version": "16.8.6",
+    "boilerplate": "react-boilerplate 4.0.0"
+  },
+  "domain": {
+    "entities": [
+      "Operator",
+      "Aircraft",
+      "Pilot",
+      "Contact",
+      "RID Module"
+    ],
+    "constraints": [
+      "RID ID must be UUID v4",
+      "Module ESN must be unique",
+      "Operator type must be 0-4",
+      "Aircraft status must be 0-3"
+    ]
+  },
+  "flows": [
+    {
+      "name": "Registration",
+      "steps": ["Landing", "Login", "Registration Form", "Submit", "Success"],
+      "routes": ["/", "/login", "/register"]
+    },
+    {
+      "name": "RID Module Activation",
+      "steps": ["Load Page", "Device Selection", "Operator Selection", "Aircraft Selection", "Activation", "Backend Sync"],
+      "routes": ["/load"]
+    },
+    {
+      "name": "Search & Discovery",
+      "steps": ["Landing", "Collection Type Selection", "Search Input", "API Query", "Results Display"],
+      "routes": ["/"]
+    },
+    {
+      "name": "Entity Details",
+      "steps": ["Details Page", "API Request", "Details Card Rendering"],
+      "routes": ["/{type}/{uuid}", "/{type}/{uuid}/privileged"]
+    }
+  ],
+  "forms": {
+    "libraries": [],
+    "schemas": [],
+    "fields": [
+      {
+        "form": "Operator",
+        "fields": ["company_name", "website", "email", "phone_number", "operator_type", "vat_number", "insurance_number", "company_number", "country", "address"]
+      },
+      {
+        "form": "Aircraft",
+        "fields": ["operator", "manufacturer", "model", "mass", "status", "esn", "maci_number", "registration_mark", "sub_category", "type_certificate"]
+      },
+      {
+        "form": "Pilot",
+        "fields": ["operator", "is_active", "person", "address"]
+      },
+      {
+        "form": "Contact",
+        "fields": ["operator", "role_type", "person", "address"]
+      }
+    ]
+  },
+  "auth": {
+    "method": "Auth0 SPA SDK (OIDC/OAuth2)",
+    "storage": "localStorage (jwt_token)",
+    "roles": [],
+    "scopes": [
+      "registry.read.operator",
+      "registry.read.operator_detail",
+      "registry.read.operator_detail.privileged",
+      "registry.read.contact_detail",
+      "registry.read.contact_detail.privileged",
+      "registry.read.pilot",
+      "registry.read.pilot_detail",
+      "registry.read.pilot_detail.privileged",
+      "registry.read.aircraft",
+      "registry.read.aircraft_detail",
+      "registry.read.aircraft_detail.privileged"
+    ],
+    "timeouts": "Not detected"
+  },
+  "api": {
+    "baseUrls": [
+      "https://register-ku.duckdns.org",
+      "http://localhost:8080"
+    ],
+    "endpoints": [
+      "/api/v1/operators",
+      "/api/v1/aircraft",
+      "/api/v1/pilots",
+      "/api/v1/contacts",
+      "/api/v1/rid-modules",
+      "/api/v1/operators/{uuid}/aircraft",
+      "/api/v1/{type}/{uuid}",
+      "/api/v1/{type}/{uuid}/privileged"
+    ],
+    "errors": [
+      "401 Unauthorized",
+      "404 Not Found",
+      "500 Server Error"
+    ],
+    "timeouts": "Browser default"
+  },
+  "state": {
+    "store": "Redux",
+    "queryLib": "None (Redux Saga)",
+    "caches": ["Redux store", "localStorage (jwt_token, operator_id)"]
+  },
+  "ui": {
+    "designSystem": "Material-UI v4.12.4",
+    "components": [
+      "DetailsCard",
+      "LoadingIndicator",
+      "IssueIcon",
+      "Toggle"
+    ],
+    "a11y": ["Partial (Material-UI defaults)"],
+    "i18n": {
+      "locales": ["en", "de"],
+      "default": "en",
+      "library": "react-intl v2.8.0"
+    }
+  },
+  "config": {
+    "envVarsPublic": [
+      "REACT_APP_REGISTRATION_API_URL",
+      "REACT_APP_API_VERSION",
+      "NODE_ENV"
+    ],
+    "featureFlags": []
+  },
+  "security": {
+    "headers": ["Strict-Transport-Security (nginx.conf)"],
+    "sanitization": "React default escaping",
+    "piiControls": []
+  },
+  "performance": {
+    "bundles": ["Webpack code splitting"],
+    "splitPoints": ["Vendor chunks per package", "Runtime chunk"],
+    "metrics": {}
+  },
+  "testing": {
+    "unit": ["Jest", "React Testing Library"],
+    "e2e": [],
+    "coverage": {
+      "statements": 98,
+      "branches": 91,
+      "functions": 98,
+      "lines": 98
+    }
+  },
+  "deployment": {
+    "mode": "SPA",
+    "cdn": false,
+    "browsers": ["last 2 versions", "> 1%", "IE 10"]
+  },
+  "observability": {
+    "logging": "Console (development only)",
+    "analytics": [],
+    "errorReporting": ""
+  },
+  "recommendations": [
+    "Add schema validation library (Zod/Yup)",
+    "Migrate to TypeScript",
+    "Add Error Boundary",
+    "Improve form validation feedback",
+    "Enhance accessibility (ARIA, keyboard navigation)",
+    "Implement token security improvements",
+    "Add API retry logic",
+    "Integrate error tracking (Sentry)",
+    "Add E2E tests",
+    "Implement feature flags",
+    "Add PII masking",
+    "Add session timeout",
+    "Make API version configurable"
+  ]
+}
+
