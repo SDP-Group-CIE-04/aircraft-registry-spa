@@ -126,7 +126,7 @@ const useStyles = makeStyles(theme => ({
 }));
 
 // If Discovery Service runs on another machine, change this to that host/IP.
-const DISCOVERY_SERVICE_URL = 'http://localhost:8080';
+const DISCOVERY_SERVICE_URL = 'http://192.168.1.236:8080';
 
 export default function LoadPage() {
   const classes = useStyles();

@@ -438,7 +438,7 @@ export function LandingPage({
   useInjectSaga({ key, saga });
 
   // Discovery Service URL for modules
-  const DISCOVERY_SERVICE_URL = 'http://localhost:8080';
+  const DISCOVERY_SERVICE_URL = 'http://127.0.0.1:8080';
 
   // Fetch aircraft with RID IDs
   const fetchAircraftWithRid = React.useCallback(async () => {
