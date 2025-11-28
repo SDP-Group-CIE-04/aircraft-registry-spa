@@ -11482,6 +11482,11 @@ wcwidth@^1.0.1:
   dependencies:
     defaults "^1.0.3"
 
+web-serial-polyfill@^1.0.15:
+  version "1.0.15"
+  resolved "https://registry.npmjs.org/web-serial-polyfill/-/web-serial-polyfill-1.0.15.tgz"
+  integrity sha512-usZN7kGRkEWr8DzRWxW+og55L1fHo4hNIwxCSCfWKpM+i0L+2AwzupMvkDFxnJNqUFOhLaD3PlgAOJxUOUrAoA==
+
 webidl-conversions@^4.0.2:
   version "4.0.2"
   resolved "https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-4.0.2.tgz"

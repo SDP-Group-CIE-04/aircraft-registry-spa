@@ -31,12 +31,19 @@ Start the server.
 
 Open a browser to http://localhost:3000
 
-## For discovery service
-### Steps
-Install all the dependencies.
+## RID Module Activation
 
-'pip install -r requirements.txt'
+The application now uses **Web Serial API** for direct browser-to-device communication. No separate Python service is required.
 
-Start the service
+### Requirements
+- Chrome 89+ or Edge 89+ browser
+- HTTPS connection (or `http://localhost` for development)
+- ESP32 module connected via USB
 
-'python discovery_service.py'
+### Usage
+1. Navigate to `/load` page
+2. Click "Request Port" to select your USB device
+3. Select operator and aircraft
+4. Click "Activate This Module"
+
+See `WEBSERIAL_MIGRATION_COMPLETE.md` for detailed documentation.

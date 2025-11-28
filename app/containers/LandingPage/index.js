@@ -416,7 +416,6 @@ export function LandingPage({
   const [anchorEl, setAnchorEl] = useState(null);
   const [searchString, setSearchString] = useState('');
   const [showSearch, setShowSearch] = useState(false);
-  const [moduleFilter, setModuleFilter] = useState('');
   const initCollection = collectionName
     ? collectionTypes.find(col => col.value === collectionName)
     : collectionTypes[0];
@@ -429,16 +428,11 @@ export function LandingPage({
     totalModules: 0,
     loading: true,
   });
-  const [modules, setModules] = useState([]);
-  const [modulesLoading, setModulesLoading] = useState(false);
   const [aircraftWithRid, setAircraftWithRid] = useState({}); // Map of aircraft_id -> {rid_id, module_esn}
   const open = Boolean(anchorEl);
   const classes = useStyles();
   useInjectReducer({ key, reducer });
   useInjectSaga({ key, saga });
-
-  // Discovery Service URL for modules
-  const DISCOVERY_SERVICE_URL = 'http://localhost:8080';
 
   // Fetch aircraft with RID IDs
   const fetchAircraftWithRid = React.useCallback(async () => {
@@ -469,20 +463,9 @@ export function LandingPage({
   useEffect(() => {
     if (isAuthenticated) {
       fetchDashboardStats();
-      fetchModules();
       fetchAircraftWithRid();
     }
   }, [isAuthenticated, fetchAircraftWithRid]);
-
-  // Refresh modules periodically
-  useEffect(() => {
-    if (isAuthenticated) {
-      const interval = setInterval(() => {
-        fetchModules();
-      }, 30000); // Refresh every 30 seconds
-      return () => clearInterval(interval);
-    }
-  }, [isAuthenticated]);
 
   React.useEffect(() => {
     if (collectionName) {
@@ -514,11 +497,18 @@ export function LandingPage({
         a => a.status === 1 || a.status === 'Active',
       ).length;
 
+      // Count modules from aircraft with RID IDs
+      const modulesWithRid = aircraftList.filter(
+        a => a.rid_id && a.module_esn,
+      ).length;
+
       setDashboardStats(prev => ({
         ...prev,
         totalOperators: operatorsList.length,
         activeAircraft: activeAircraftCount,
         registeredPilots: pilotsList.length,
+        activeModules: modulesWithRid,
+        totalModules: modulesWithRid,
         loading: false,
       }));
     } catch (error) {
@@ -527,30 +517,9 @@ export function LandingPage({
     }
   };
 
-  const fetchModules = async () => {
-    try {
-      setModulesLoading(true);
-      const response = await fetch(`${DISCOVERY_SERVICE_URL}/devices`);
-      if (response.ok) {
-        const data = await response.json().catch(() => ({}));
-        const list = data?.devices || [];
-        setModules(list);
-        // Update active modules count
-        setDashboardStats(prev => ({
-          ...prev,
-          activeModules: list.filter(m => m.connection_type === 'USB').length,
-          totalModules: list.length,
-        }));
-        // Refresh aircraft with RID to update associations
-        fetchAircraftWithRid();
-      }
-    } catch (error) {
-      console.error('Error fetching modules:', error);
-      setModules([]);
-    } finally {
-      setModulesLoading(false);
-    }
-  };
+  // Note: Module discovery now requires Web Serial API (user interaction)
+  // Use /load page to connect and activate modules
+  // Module stats are calculated from aircraft with RID IDs
 
   function handleMenu(event) {
     setAnchorEl(event.currentTarget);
@@ -602,17 +571,7 @@ export function LandingPage({
     },
   ];
 
-  const filteredModules = modules.filter(module => {
-    if (!moduleFilter) return true;
-    const filter = moduleFilter.toLowerCase();
-    const associatedAircraft = aircraftWithRid[module.esn];
-    const ridId = associatedAircraft?.rid_id || '';
-    return (
-      module.esn?.toLowerCase().includes(filter) ||
-      module.port?.toLowerCase().includes(filter) ||
-      ridId.toLowerCase().includes(filter)
-    );
-  });
+  // Module discovery now requires Web Serial API (user interaction on /load page)
 
   return (
     <>
@@ -990,7 +949,7 @@ export function LandingPage({
 
                 <Divider style={{ margin: '24px 0' }} />
 
-                {/* Active Modules Status Board */}
+                {/* RID Module Management */}
                 <Box className={classes.dashboardSection}>
                   <Box
                     display="flex"
@@ -999,121 +958,40 @@ export function LandingPage({
                     marginBottom={2}
                   >
                     <Typography variant="h5" className={classes.sectionTitle}>
-                      <WifiIcon /> Active Modules Status
+                      <WifiIcon /> RID Module Management
                     </Typography>
                     <Button
-                      size="small"
-                      startIcon={<RefreshIcon />}
-                      onClick={fetchModules}
-                      disabled={modulesLoading}
+                      variant="contained"
+                      color="primary"
+                      onClick={() => props.history.push('/load')}
                     >
-                      Refresh
+                      Connect & Activate Module
                     </Button>
                   </Box>
 
-                  <TextField
-                    placeholder="Filter by ESN, Port, or RID ID..."
-                    variant="outlined"
-                    size="small"
-                    fullWidth
-                    value={moduleFilter}
-                    onChange={e => setModuleFilter(e.target.value)}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon />
-                        </InputAdornment>
-                      ),
-                    }}
-                    style={{ marginBottom: 16 }}
-                  />
-
-                  {modulesLoading ? (
-                    <Box display="flex" justifyContent="center" padding={4}>
-                      <CircularProgress />
+                  <Paper style={{ padding: 24, backgroundColor: '#f5f5f5' }}>
+                    <Typography variant="body1" paragraph>
+                      To connect and activate RID modules, use the <strong>Load Page</strong> which supports Web Serial API for direct USB communication.
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" paragraph>
+                      • Connect your ESP32 module via USB cable
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" paragraph>
+                      • Click "Request Port" to select your device (Chrome/Edge browsers only)
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" paragraph>
+                      • Select operator and aircraft, then activate the module
+                    </Typography>
+                    <Box marginTop={2}>
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        onClick={() => props.history.push('/load')}
+                      >
+                        Go to Load Page
+                      </Button>
                     </Box>
-                  ) : filteredModules.length > 0 ? (
-                    <TableContainer component={Paper}>
-                      <Table>
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Status</TableCell>
-                            <TableCell>Module ESN</TableCell>
-                            <TableCell>RID ID</TableCell>
-                            <TableCell>USB Port</TableCell>
-                            <TableCell>Connection</TableCell>
-                            <TableCell>Manufacturer</TableCell>
-                            <TableCell>Actions</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {filteredModules.map((module, index) => {
-                            // Find aircraft associated with this module ESN
-                            const associatedAircraft = aircraftWithRid[module.esn];
-                            const ridId = associatedAircraft?.rid_id || 'Not Assigned';
-
-                            return (
-                              <TableRow key={index}>
-                                <TableCell>
-                                  <span
-                                    className={`${classes.statusDot} ${
-                                      module.connection_type === 'USB'
-                                        ? 'online'
-                                        : 'offline'
-                                    }`}
-                                  />
-                                  {module.connection_type === 'USB'
-                                    ? 'Online'
-                                    : 'Offline'}
-                                </TableCell>
-                                <TableCell>
-                                  <strong>RSAS-Module-{module.esn}</strong>
-                                </TableCell>
-                                <TableCell>
-                                  {ridId !== 'Not Assigned' ? (
-                                    <Chip
-                                      label={ridId}
-                                      size="small"
-                                      color="primary"
-                                      style={{ fontFamily: 'monospace' }}
-                                    />
-                                  ) : (
-                                    <Typography variant="body2" color="textSecondary">
-                                      {ridId}
-                                    </Typography>
-                                  )}
-                                </TableCell>
-                                <TableCell>{module.port || 'N/A'}</TableCell>
-                                <TableCell>{module.connection_type || 'N/A'}</TableCell>
-                                <TableCell>{module.manufacturer || 'N/A'}</TableCell>
-                                <TableCell>
-                                  <Button
-                                    size="small"
-                                    variant="outlined"
-                                    onClick={() => props.history.push('/load')}
-                                  >
-                                    {ridId !== 'Not Assigned' ? 'Reconfigure' : 'Activate'}
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  ) : (
-                    <Paper className={classes.emptyState}>
-                      <WifiOffIcon className={classes.emptyIcon} />
-                      <Typography variant="h6" gutterBottom>
-                        No Modules Found
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        {moduleFilter
-                          ? 'No modules match your filter criteria.'
-                          : 'No RID modules detected. Connect a module via USB to get started.'}
-                      </Typography>
-                    </Paper>
-                  )}
+                  </Paper>
                 </Box>
 
                 {/* Search Section - Toggleable */}
