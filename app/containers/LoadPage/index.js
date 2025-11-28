@@ -25,8 +25,6 @@ import WifiIcon from '@material-ui/icons/Wifi';
 import history from '../../utils/history';
 import bgImage from '../../images/blurBg.jpg';
 import * as apiService from '../../services/apiService';
-import { loadSerialApi, isSerialApiSupported } from '../../utils/serialApi';
-import Serial from '../../utils/Serial';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -127,8 +125,8 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-// USB Vendor IDs for ESP32 modules (Silicon Labs, QinHeng, Espressif)
-const DISCOVERY_VIDS = [0x10c4, 0x1a86, 0x303a]; // Silicon Labs, QinHeng, Espressif
+// If Discovery Service runs on another machine, change this to that host/IP.
+const DISCOVERY_SERVICE_URL = 'http://192.168.1.236:8080';
 
 export default function LoadPage() {
   const classes = useStyles();
@@ -162,29 +160,11 @@ export default function LoadPage() {
     pendingActivation: null, // Store the activation function to call after confirmation
   });
 
-  // Web Serial API instance
-  const [serialApi, setSerialApi] = useState(null);
-  const [serialSupported, setSerialSupported] = useState(false);
-
-  // Initialize Serial API on mount
-  useEffect(() => {
-    const api = loadSerialApi();
-    setSerialApi(api);
-    setSerialSupported(isSerialApiSupported());
-    
-    if (!api) {
-      setError('Web Serial API is not supported in this browser. Please use Chrome or Edge 89+.');
-      setLoading(false);
-    }
-  }, []);
-
   // Scan on mount (fixed stray char)
   useEffect(() => {
-    if (serialSupported) {
-      scanForDevices();
-    }
+    scanForDevices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serialSupported]);
+  }, []);
 
   useEffect(() => {
     // Load operator id from localStorage and fetch aircraft
@@ -230,130 +210,27 @@ export default function LoadPage() {
   };
 
   const scanForDevices = async () => {
-    if (!serialApi) {
-      setError('Web Serial API is not available');
-      setLoading(false);
-      return;
-    }
-
     try {
       setScanning(true);
       setError(null);
 
-      // Get previously authorized ports
-      const ports = await serialApi.getPorts();
-      const deviceList = [];
+      const response = await fetch(`${DISCOVERY_SERVICE_URL}/devices`);
+      if (!response.ok) throw new Error('Discovery service not responding');
 
-      // Try to query each port for device info
-      for (const port of ports) {
-        try {
-          const portInfo = port.getInfo();
-          // Filter by vendor ID if available
-          if (portInfo.usbVendorId && !DISCOVERY_VIDS.includes(portInfo.usbVendorId)) {
-            continue; // Skip ports that don't match our vendor IDs
-          }
+      const data = await response.json().catch(() => ({}));
+      const list = data?.devices || [];
+      setDevices(list);
 
-          // Open port and query GET_INFO
-          const serial = new Serial(port);
-          await serial.open(115200);
-          
-          // Small delay to let port stabilize
-          await new Promise(resolve => setTimeout(resolve, 250));
-          
-          try {
-            const info = await serial.getInfo();
-            const esn = info.esn || 'UNKNOWN';
-            const status = info.status || 'ready';
-
-            deviceList.push({
-              name: `RSAS-Module-${esn}`,
-              port: port, // Store port object, not string
-              portName: portInfo.usbVendorId 
-                ? `${portInfo.usbVendorId.toString(16)}:${portInfo.usbProductId?.toString(16) || 'unknown'}`
-                : 'USB Device',
-              esn,
-              description: 'ESP32 Module',
-              manufacturer: 'Espressif',
-              vid: portInfo.usbVendorId ? `0x${portInfo.usbVendorId.toString(16)}` : 'N/A',
-              pid: portInfo.usbProductId ? `0x${portInfo.usbProductId.toString(16)}` : 'N/A',
-              status,
-              connection_type: 'USB',
-              last_seen: Date.now() / 1000,
-            });
-          } catch (infoError) {
-            console.warn(`Failed to get info from port:`, infoError);
-            // Still add device with unknown info
-            deviceList.push({
-              name: 'RSAS-Module-Unknown',
-              port: port,
-              portName: portInfo.usbVendorId 
-                ? `${portInfo.usbVendorId.toString(16)}:${portInfo.usbProductId?.toString(16) || 'unknown'}`
-                : 'USB Device',
-              esn: 'UNKNOWN',
-              description: 'ESP32 Module',
-              manufacturer: 'Unknown',
-              vid: portInfo.usbVendorId ? `0x${portInfo.usbVendorId.toString(16)}` : 'N/A',
-              pid: portInfo.usbProductId ? `0x${portInfo.usbProductId.toString(16)}` : 'N/A',
-              status: 'ready',
-              connection_type: 'USB',
-              last_seen: Date.now() / 1000,
-            });
-          } finally {
-            await serial.close();
-          }
-        } catch (portError) {
-          console.warn(`Error processing port:`, portError);
-          // Continue with other ports
-        }
-      }
-
-      setDevices(deviceList);
-
-      if (deviceList.length === 0) {
-        setError('No RSAS modules found. Click "Request Port" to select a USB device, or make sure your ESP32 is connected via USB.');
+      if (list.length === 0) {
+        setError('No RSAS modules found. Make sure your ESP32 is connected via USB.');
       }
     } catch (err) {
       console.error('Scan error:', err);
-      if (err.name === 'NotFoundError') {
-        setError('No ports selected. Click "Request Port" to select a USB device.');
-      } else {
-        setError(`Error scanning for devices: ${err.message}`);
-      }
+      setError('Cannot connect to Discovery Service. Please ensure the service is running on localhost:8080');
       setDevices([]);
     } finally {
       setScanning(false);
       setLoading(false);
-    }
-  };
-
-  // Request port permission (user gesture required)
-  const handleRequestPort = async () => {
-    if (!serialApi) {
-      showNotification('Web Serial API is not available', 'error');
-      return;
-    }
-
-    try {
-      setScanning(true);
-      setError(null);
-
-      // Request port with filters for ESP32 vendor IDs
-      const port = await serialApi.requestPort({
-        filters: DISCOVERY_VIDS.map(vid => ({ usbVendorId: vid })),
-      });
-
-      // After user selects port, scan again to include it
-      await scanForDevices();
-    } catch (err) {
-      if (err.name === 'NotFoundError') {
-        // User cancelled - this is normal
-        console.log('User cancelled port selection');
-      } else {
-        console.error('Error requesting port:', err);
-        setError(`Error requesting port: ${err.message}`);
-      }
-    } finally {
-      setScanning(false);
     }
   };
 
@@ -398,51 +275,48 @@ export default function LoadPage() {
   };
 
   // Check for existing IDs in the module
-  const checkExistingIds = async (device) => {
-    if (!device || !device.port) {
-      return null;
-    }
-
+  const checkExistingIds = async (devicePort) => {
     try {
-      console.log('[DEBUG] Checking for existing IDs on port');
-      const serial = new Serial(device.port);
-      await serial.open(115200);
+      console.log('[DEBUG] Checking for existing IDs on port:', devicePort);
+      const response = await fetch(
+        `${DISCOVERY_SERVICE_URL}/device-info?device_port=${encodeURIComponent(devicePort)}`
+      );
+      console.log('[DEBUG] Device info response status:', response.status);
       
-      // Small delay to let port stabilize
-      await new Promise(resolve => setTimeout(resolve, 250));
-      
-      try {
-        const fields = await serial.getFields();
-        console.log('[DEBUG] Device info data received:', fields);
-        
-        // Check if any IDs are stored (non-empty strings after trimming)
-        const hasOperatorId = fields.operator_id && fields.operator_id.trim().length > 0;
-        const hasAircraftId = fields.aircraft_id && fields.aircraft_id.trim().length > 0;
-        const hasRidId = fields.rid_id && fields.rid_id.trim().length > 0;
-        
-        console.log('[DEBUG] ID check results:', {
-          hasOperatorId,
-          hasAircraftId,
-          hasRidId,
-          operator_id: fields.operator_id,
-          aircraft_id: fields.aircraft_id,
-          rid_id: fields.rid_id
-        });
-        
-        if (hasOperatorId || hasAircraftId || hasRidId) {
-          console.log('[DEBUG] Existing IDs found, will show confirmation dialog');
-          return {
-            operator_id: hasOperatorId ? fields.operator_id.trim() : '',
-            aircraft_id: hasAircraftId ? fields.aircraft_id.trim() : '',
-            rid_id: hasRidId ? fields.rid_id.trim() : ''
-          };
-        }
-        
-        console.log('[DEBUG] No existing IDs found');
-        return null; // No IDs stored
-      } finally {
-        await serial.close();
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn('[DEBUG] Failed to get device info:', response.status, errorText);
+        return null; // Error reading, but don't block activation
       }
+      
+      const data = await response.json();
+      console.log('[DEBUG] Device info data received:', data);
+      
+      // Check if any IDs are stored (non-empty strings after trimming)
+      const hasOperatorId = data.operator_id && data.operator_id.trim().length > 0;
+      const hasAircraftId = data.aircraft_id && data.aircraft_id.trim().length > 0;
+      const hasRidId = data.rid_id && data.rid_id.trim().length > 0;
+      
+      console.log('[DEBUG] ID check results:', {
+        hasOperatorId,
+        hasAircraftId,
+        hasRidId,
+        operator_id: data.operator_id,
+        aircraft_id: data.aircraft_id,
+        rid_id: data.rid_id
+      });
+      
+      if (hasOperatorId || hasAircraftId || hasRidId) {
+        console.log('[DEBUG] Existing IDs found, will show confirmation dialog');
+        return {
+          operator_id: hasOperatorId ? data.operator_id.trim() : '',
+          aircraft_id: hasAircraftId ? data.aircraft_id.trim() : '',
+          rid_id: hasRidId ? data.rid_id.trim() : ''
+        };
+      }
+      
+      console.log('[DEBUG] No existing IDs found');
+      return null; // No IDs stored
     } catch (err) {
       console.error('[DEBUG] Failed to check existing IDs:', err);
       return null; // Don't block activation on check failure
@@ -509,50 +383,55 @@ export default function LoadPage() {
           ? (rawMass > 50 ? rawMass / 1000 : rawMass)
           : parseFloat(rawMass) || 0;
 
+      const activationData = {
+        device_port: selectedDevice.port,  // USB serial port to Discovery Service
+        aircraft_data: {
+          operator_id: operatorId,
+          aircraft_id: selectedAircraft.id,
+          registration_mark: selectedAircraft.registration_mark,
+          model: selectedAircraft.model || selectedAircraft.popular_name || '',
+          mass,
+          esn: selectedDevice.esn,
+          rid_id: ridId,  // Add RID ID to activation data
+        },
+      };
+
       console.log('[DEBUG] ========================================');
-      console.log('[DEBUG] Activation Data:');
-      console.log('[DEBUG]   Operator ID:', operatorId);
-      console.log('[DEBUG]   Aircraft ID:', selectedAircraft.id);
-      console.log('[DEBUG]   RID ID:', ridId);
-      console.log('[DEBUG]   ESN:', selectedDevice.esn);
+      console.log('[DEBUG] Activation Data Being Sent:');
+      console.log(JSON.stringify(activationData, null, 2));
+      console.log('[DEBUG] RID ID in activationData:', activationData.aircraft_data.rid_id);
       console.log('[DEBUG] ========================================');
 
-      // Open serial port and send BASIC_SET command
-      if (!selectedDevice.port) {
-        throw new Error('Device port not available');
+      const response = await fetch(`${DISCOVERY_SERVICE_URL}/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(activationData),
+      });
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || result?.success === false) {
+        // Capture failure in console as well
+        const now = new Date().toLocaleString();
+        setDeviceConsole(prev => ({
+          ...prev,
+          [selectedDevice.port]: {
+            cmd: result?.sent_command || 'BASIC_SET ...',
+            msg: result?.error || 'Activation failed',
+            time: now,
+            ridId: null,
+          },
+        }));
+        throw new Error(result?.error || 'Activation failed');
       }
 
-      const serial = new Serial(selectedDevice.port);
-      await serial.open(115200);
-      
-      // Small delay to let port stabilize
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      let deviceReply;
-      let sentCommand;
-      try {
-        // Send BASIC_SET command
-        sentCommand = `BASIC_SET operator_id=${operatorId}|aircraft_id=${selectedAircraft.id}|rid_id=${ridId}`;
-        if (selectedDevice.esn) {
-          sentCommand += `|serial_number=${selectedDevice.esn}`;
-        }
-        
-        deviceReply = await serial.basicSet(
-          operatorId,
-          selectedAircraft.id,
-          ridId,
-          selectedDevice.esn || null
-        );
-      } finally {
-        await serial.close();
-      }
-
+      const deviceReply = result?.esp32_response || 'OK';
       const now = new Date().toLocaleString();
       setDeviceConsole(prev => ({
         ...prev,
-        [selectedDevice.portName || 'device']: {
-          cmd: sentCommand,
-          msg: deviceReply || 'OK',
+        [selectedDevice.port]: {
+          cmd: result?.sent_command || `BASIC_SET operator_id=${operatorId}|aircraft_id=${selectedAircraft.id}|rid_id=${ridId}`,
+          msg: deviceReply,
           time: now,
           ridId: ridId,
         },
@@ -618,10 +497,10 @@ export default function LoadPage() {
       return;
     }
 
-    console.log('[DEBUG] Selected device');
+    console.log('[DEBUG] Selected device:', selectedDevice.port);
     
     // Check for existing IDs
-    const existingIds = await checkExistingIds(selectedDevice);
+    const existingIds = await checkExistingIds(selectedDevice.port);
     console.log('[DEBUG] checkExistingIds returned:', existingIds);
     
     if (existingIds) {
@@ -654,7 +533,7 @@ export default function LoadPage() {
   };
 
   const renderDeviceConsole = (device) => {
-    const entry = deviceConsole[device.portName || 'device'];
+    const entry = deviceConsole[device.port];
     if (!entry) return null;
 
     return (
@@ -691,7 +570,7 @@ export default function LoadPage() {
   };
 
   const renderDeviceCard = (device, index) => {
-    const isSelected = selectedDevice?.portName === device.portName;
+    const isSelected = selectedDevice?.port === device.port;
 
     return (
       <Grid item xs={12} md={6} key={index}>
@@ -713,7 +592,7 @@ export default function LoadPage() {
             </Box>
 
             <Typography variant="body2" color="textSecondary" style={{ marginTop: 8 }}>
-              <strong>USB Port:</strong> {device.portName || 'USB Device'}
+              <strong>USB Port:</strong> {device.port}
             </Typography>
 
             <Typography variant="body2" color="textSecondary">
@@ -773,32 +652,17 @@ export default function LoadPage() {
               No RSAS Modules Found
             </Typography>
             <Typography variant="body2" color="textSecondary" paragraph>
-              {serialSupported 
-                ? 'Make sure your ESP32 module is connected via USB cable, then click "Request Port" to select it.'
-                : 'Web Serial API is not supported in this browser. Please use Chrome or Edge 89+.'}
+              Make sure your ESP32 module is connected via USB cable.
             </Typography>
-            {serialSupported && (
-              <Button
-                variant="contained"
-                className={classes.actionButton}
-                onClick={handleRequestPort}
-                disabled={scanning}
-              >
-                Request Port
-              </Button>
-            )}
-            {serialSupported && (
-              <Button
-                variant="outlined"
-                className={classes.actionButton}
-                startIcon={<RefreshIcon />}
-                onClick={scanForDevices}
-                disabled={scanning}
-                style={{ marginLeft: 8 }}
-              >
-                {scanning ? 'Scanning...' : 'Scan Again'}
-              </Button>
-            )}
+            <Button
+              variant="contained"
+              className={classes.actionButton}
+              startIcon={<RefreshIcon />}
+              onClick={scanForDevices}
+              disabled={scanning}
+            >
+              {scanning ? 'Scanning...' : 'Scan Again'}
+            </Button>
           </Box>
         );
       }
@@ -807,27 +671,16 @@ export default function LoadPage() {
         <>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
             <Typography variant="body1">
-              Found <strong>{devices.length}</strong> module(s)
+              Found <strong>{devices.length}</strong> module(s) on network
             </Typography>
-            <Box>
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={scanForDevices}
-                disabled={scanning || activating}
-                style={{ marginRight: 8 }}
-              >
-                {scanning ? 'Scanning...' : 'Refresh'}
-              </Button>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleRequestPort}
-                disabled={scanning || activating || !serialSupported}
-              >
-                Request Port
-              </Button>
-            </Box>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={scanForDevices}
+              disabled={scanning || activating}
+            >
+              {scanning ? 'Scanning...' : 'Refresh'}
+            </Button>
           </Box>
 
           <Grid container spacing={3}>
