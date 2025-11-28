@@ -25,8 +25,10 @@ import WifiIcon from '@material-ui/icons/Wifi';
 import history from '../../utils/history';
 import bgImage from '../../images/blurBg.jpg';
 import * as apiService from '../../services/apiService';
-import { loadSerialApi, isSerialApiSupported } from '../../utils/serialApi';
-import Serial from '../../utils/Serial';
+import { loadSerialApi, isSerialApiSupported, Serial } from '../../utils/serial';
+import { debug, error, warn } from '../../utils/logger';
+
+const logError = error;
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -207,7 +209,7 @@ export default function LoadPage() {
         const data = await apiService.getOperators();
         setOperators(Array.isArray(data) ? data : (data?.results || []));
       } catch (err) {
-        console.error('Fetch operators error:', err);
+        logError('Fetch operators error:', err);
         setOperatorsError(err.message || 'Failed to load operators');
         setOperators([]);
       } finally {
@@ -281,7 +283,7 @@ export default function LoadPage() {
               last_seen: Date.now() / 1000,
             });
           } catch (infoError) {
-            console.warn(`Failed to get info from port:`, infoError);
+            warn(`Failed to get info from port:`, infoError);
             // Still add device with unknown info
             deviceList.push({
               name: 'RSAS-Module-Unknown',
@@ -302,7 +304,7 @@ export default function LoadPage() {
             await serial.close();
           }
         } catch (portError) {
-          console.warn(`Error processing port:`, portError);
+          warn(`Error processing port:`, portError);
           // Continue with other ports
         }
       }
@@ -313,7 +315,7 @@ export default function LoadPage() {
         setError('No RSAS modules found. Click "Request Port" to select a USB device, or make sure your ESP32 is connected via USB.');
       }
     } catch (err) {
-      console.error('Scan error:', err);
+      logError('Scan error:', err);
       if (err.name === 'NotFoundError') {
         setError('No ports selected. Click "Request Port" to select a USB device.');
       } else {
@@ -347,9 +349,9 @@ export default function LoadPage() {
     } catch (err) {
       if (err.name === 'NotFoundError') {
         // User cancelled - this is normal
-        console.log('User cancelled port selection');
+        debug('User cancelled port selection');
       } else {
-        console.error('Error requesting port:', err);
+        logError('Error requesting port:', err);
         setError(`Error requesting port: ${err.message}`);
       }
     } finally {
@@ -367,7 +369,7 @@ export default function LoadPage() {
         setAircraftError('No aircraft found for this operator. Please register an aircraft first.');
       }
     } catch (err) {
-      console.error('Fetch aircraft error:', err);
+      logError('Fetch aircraft error:', err);
       setAircraftError(err.message || 'Failed to load aircraft');
       setAircraftList([]);
     } finally {
@@ -386,7 +388,7 @@ export default function LoadPage() {
       try {
         window.localStorage.setItem('operator_id', id);
       } catch (err) {
-        console.warn('Unable to persist operator_id:', err);
+        warn('Unable to persist operator_id:', err);
       }
       fetchAircraftForOperator(id);
     }
@@ -404,7 +406,7 @@ export default function LoadPage() {
     }
 
     try {
-      console.log('[DEBUG] Checking for existing IDs on port');
+      debug('Checking for existing IDs on port');
       const serial = new Serial(device.port);
       await serial.open(115200);
       
@@ -413,24 +415,15 @@ export default function LoadPage() {
       
       try {
         const fields = await serial.getFields();
-        console.log('[DEBUG] Device info data received:', fields);
+        debug('Device info data received:', fields);
         
         // Check if any IDs are stored (non-empty strings after trimming)
         const hasOperatorId = fields.operator_id && fields.operator_id.trim().length > 0;
         const hasAircraftId = fields.aircraft_id && fields.aircraft_id.trim().length > 0;
         const hasRidId = fields.rid_id && fields.rid_id.trim().length > 0;
         
-        console.log('[DEBUG] ID check results:', {
-          hasOperatorId,
-          hasAircraftId,
-          hasRidId,
-          operator_id: fields.operator_id,
-          aircraft_id: fields.aircraft_id,
-          rid_id: fields.rid_id
-        });
-        
         if (hasOperatorId || hasAircraftId || hasRidId) {
-          console.log('[DEBUG] Existing IDs found, will show confirmation dialog');
+          debug('Existing IDs found, will show confirmation dialog');
           return {
             operator_id: hasOperatorId ? fields.operator_id.trim() : '',
             aircraft_id: hasAircraftId ? fields.aircraft_id.trim() : '',
@@ -438,13 +431,12 @@ export default function LoadPage() {
           };
         }
         
-        console.log('[DEBUG] No existing IDs found');
         return null; // No IDs stored
       } finally {
         await serial.close();
       }
     } catch (err) {
-      console.error('[DEBUG] Failed to check existing IDs:', err);
+      logError('Failed to check existing IDs:', err);
       return null; // Don't block activation on check failure
     }
   };
@@ -487,28 +479,24 @@ export default function LoadPage() {
         selectedDevice.esn
       );
 
-      console.log('[DEBUG] ========================================');
-      console.log('[DEBUG] RID ID Generation:');
-      console.log('[DEBUG]   Operator ID:', operatorId);
-      console.log('[DEBUG]   Aircraft ID:', selectedAircraft.id);
-      console.log('[DEBUG]   Device ESN:', selectedDevice.esn);
-      console.log('[DEBUG]   Generated RID ID:', ridId);
-      console.log('[DEBUG]   RID ID type:', typeof ridId);
-      console.log('[DEBUG]   RID ID length:', ridId?.length);
-      console.log('[DEBUG]   Is UUID format?', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ridId));
-      console.log('[DEBUG] ========================================');
+      debug('RID ID Generation:', {
+        operatorId,
+        aircraftId: selectedAircraft.id,
+        esn: selectedDevice.esn,
+        ridId,
+        isValid: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ridId),
+      });
       
       if (!ridId || ridId.length === 0) {
         throw new Error('Failed to generate RID ID');
       }
 
-      console.log('[DEBUG] ========================================');
-      console.log('[DEBUG] Activation Data:');
-      console.log('[DEBUG]   Operator ID:', operatorId);
-      console.log('[DEBUG]   Aircraft ID:', selectedAircraft.id);
-      console.log('[DEBUG]   RID ID:', ridId);
-      console.log('[DEBUG]   ESN:', selectedDevice.esn);
-      console.log('[DEBUG] ========================================');
+      debug('Activation Data:', {
+        operatorId,
+        aircraftId: selectedAircraft.id,
+        ridId,
+        esn: selectedDevice.esn,
+      });
 
       // Open serial port and send BASIC_SET command
       if (!selectedDevice.port) {
@@ -571,17 +559,17 @@ export default function LoadPage() {
         let savedModule;
         if (existingModule) {
           // Update existing module
-          console.log('Updating existing RID module:', existingModule.id);
+          debug('Updating existing RID module:', existingModule.id);
           savedModule = await apiService.updateRidModule(existingModule.id, moduleData);
-          console.log('RID module updated in backend:', savedModule);
+          debug('RID module updated in backend');
         } else {
           // Create new module
-          console.log('Creating new RID module');
+          debug('Creating new RID module');
           savedModule = await apiService.createRidModule(moduleData);
-          console.log('RID module saved to backend:', savedModule);
+          debug('RID module saved to backend');
         }
       } catch (backendError) {
-        console.error('Failed to save/update RID module to backend:', backendError);
+        logError('Failed to save/update RID module to backend:', backendError);
         // Don't fail the activation if backend save fails, but log it
         showNotification(
           `Module activated but failed to save RID module to backend: ${backendError.message}`,
@@ -597,7 +585,7 @@ export default function LoadPage() {
       // Keep selection so user can see console; re-scan to reflect status
       setTimeout(() => scanForDevices(), 1200);
     } catch (err) {
-      console.error('Activation error:', err);
+      logError('Activation error:', err);
       showNotification(err.message || 'Activation failed', 'error');
     } finally {
       setActivating(false);
@@ -606,20 +594,16 @@ export default function LoadPage() {
 
   // Handle activate button click - check for existing IDs first
   const handleActivate = async () => {
-    console.log('[DEBUG] handleActivate called');
     if (!selectedDevice) {
       showNotification('Please select a device first', 'error');
       return;
     }
-
-    console.log('[DEBUG] Selected device');
     
     // Check for existing IDs
     const existingIds = await checkExistingIds(selectedDevice);
-    console.log('[DEBUG] checkExistingIds returned:', existingIds);
     
     if (existingIds) {
-      console.log('[DEBUG] Showing override confirmation dialog');
+      debug('Showing override confirmation dialog');
       // Show confirmation dialog
       setOverrideDialog({
         open: true,
@@ -627,7 +611,7 @@ export default function LoadPage() {
         pendingActivation: performActivation,
       });
     } else {
-      console.log('[DEBUG] No existing IDs, proceeding with activation');
+      debug('No existing IDs, proceeding with activation');
       // No existing IDs, proceed directly
       await performActivation();
     }
@@ -838,7 +822,7 @@ export default function LoadPage() {
         </>
       );
     } catch (err) {
-      console.error('Error rendering content:', err);
+      logError('Error rendering content:', err);
       return (
         <Box className={classes.emptyState}>
           <Typography variant="h6" gutterBottom color="error">

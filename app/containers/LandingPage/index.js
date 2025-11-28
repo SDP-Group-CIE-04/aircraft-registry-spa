@@ -461,7 +461,7 @@ export function LandingPage({
       });
       setAircraftWithRid(ridMap);
     } catch (error) {
-      console.error('Error fetching aircraft with RID:', error);
+      // Error fetching aircraft with RID - silently fail
     }
   }, []);
 
@@ -522,7 +522,7 @@ export function LandingPage({
         loading: false,
       }));
     } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
+      // Error fetching dashboard stats - silently fail
       setDashboardStats(prev => ({ ...prev, loading: false }));
     }
   };
@@ -545,7 +545,7 @@ export function LandingPage({
         fetchAircraftWithRid();
       }
     } catch (error) {
-      console.error('Error fetching modules:', error);
+      // Error fetching modules - silently fail
       setModules([]);
     } finally {
       setModulesLoading(false);
@@ -957,7 +957,7 @@ export function LandingPage({
                       <Card
                         className={`${classes.actionCard} success`}
                         onClick={() => {
-                          // TODO: Implement reports page
+                          // Reports feature - to be implemented
                           alert('Reports feature coming soon!');
                         }}
                       >
