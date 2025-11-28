@@ -245,6 +245,6 @@ if __name__ == "__main__":
     print("  RSAS Discovery Service - USB Serial")
     print("=" * 60)
     print("GET /devices | POST /activate | GET /device-info | GET /health")
-    print("Listening on http://127.0.0.1:8080")
+    print("Listening on http://0.0.0.0:8080")
     print("=" * 60)
-    app.run(host="127.0.0.1", port=8080, debug=False)
+    app.run(host="0.0.0.0", port=8080, debug=False)
