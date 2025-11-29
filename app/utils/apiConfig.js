@@ -6,9 +6,8 @@
 // Get API base URL from environment variable, with fallback
 // Remove trailing slash if present
 const getBaseUrl = () => {
-  const url =
-    process.env.REACT_APP_REGISTRATION_API_URL ||
-    'https://register-ku.duckdns.org';
+  // For local testing, use localhost backend
+  const url = 'http://127.0.0.1:8000';
   return url.replace(/\/$/, ''); // Remove trailing slash
 };
 
@@ -23,7 +22,10 @@ export const API_URL = `${API_BASE_URL}/api/${API_VERSION}`;
 // Log API URL in development for debugging
 if (process.env.NODE_ENV === 'development') {
   console.log('[API Config] API_URL:', API_URL);
-  console.log('[API Config] REACT_APP_REGISTRATION_API_URL:', process.env.REACT_APP_REGISTRATION_API_URL);
+  console.log(
+    '[API Config] REACT_APP_REGISTRATION_API_URL:',
+    process.env.REACT_APP_REGISTRATION_API_URL,
+  );
 }
 
 /**
@@ -62,4 +64,3 @@ export const removeJwtToken = () => {
   localStorage.removeItem('auth_token');
   localStorage.removeItem('token');
 };
-
