@@ -138,6 +138,11 @@ export default function RegistrationPage() {
     address: { ...INITIAL_ADDRESS },
   });
 
+  // Spotlight Login fields
+  const [spotlightPassword, setSpotlightPassword] = useState('');
+  const [spotlightConfirmPassword, setSpotlightConfirmPassword] = useState('');
+  const [spotlightPasswordError, setSpotlightPasswordError] = useState('');
+
   const [pilotData, setPilotData] = useState({
     operator: '',
     is_active: true,
@@ -313,13 +318,24 @@ export default function RegistrationPage() {
 
   const handleSubmit = async e => {
     e.preventDefault();
-    
+
     setSubmitting(true);
 
     try {
       switch (entityType) {
         case 'operator':
-          await apiService.registerOperator(formData);
+          // Validate Spotlight Login passwords
+          if (spotlightPassword !== spotlightConfirmPassword) {
+            setSpotlightPasswordError('Passwords do not match');
+            setSubmitting(false);
+            return;
+          }
+          setSpotlightPasswordError('');
+          // Add password to registration payload
+          await apiService.registerOperator({
+            ...formData,
+            password: spotlightPassword,
+          });
           break;
         case 'pilot':
           await apiService.registerPilot(pilotData);
@@ -1246,6 +1262,37 @@ export default function RegistrationPage() {
         required
       />
 
+      {/* Spotlight Login - only for operator registration */}
+      <Typography variant="h6" className={classes.sectionTitle}>
+        Spotlight Login
+      </Typography>
+      <TextField
+        className={classes.textField}
+        label="Password"
+        variant="outlined"
+        fullWidth
+        type="password"
+        name="password"
+        value={spotlightPassword}
+        onChange={e => setSpotlightPassword(e.target.value)}
+        required
+        margin="normal"
+      />
+      <TextField
+        className={classes.textField}
+        label="Confirm Password"
+        variant="outlined"
+        fullWidth
+        type="password"
+        name="spotlight_confirm_password"
+        value={spotlightConfirmPassword}
+        onChange={e => setSpotlightConfirmPassword(e.target.value)}
+        required
+        margin="normal"
+        error={!!spotlightPasswordError}
+        helperText={spotlightPasswordError}
+      />
+
       {/* Business Information */}
       <Typography variant="h6" className={classes.sectionTitle}>
         Business Information
@@ -1415,7 +1462,7 @@ export default function RegistrationPage() {
           <Typography variant="h4" gutterBottom>
             Register New Entity
           </Typography>
-          
+
           <form onSubmit={handleSubmit} className={classes.form}>
             <TextField
               className={classes.textField}
