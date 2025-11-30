@@ -429,6 +429,36 @@ export function LandingPage({
     totalModules: 0,
     loading: true,
   });
+  const [statusIndicators, setStatusIndicators] = useState([
+    {
+      type: 'warning',
+      icon: <WarningIcon />,
+      message: 'Operators pending approval',
+      count: 0,
+      loading: true,
+    },
+    {
+      type: 'info',
+      icon: <SettingsIcon />,
+      message: 'Aircraft needing maintenance updates',
+      count: 0,
+      loading: true,
+    },
+    {
+      type: 'warning',
+      icon: <PersonIcon />,
+      message: 'Pilots with expiring certifications',
+      count: 0,
+      loading: true,
+    },
+    {
+      type: 'error',
+      icon: <WifiOffIcon />,
+      message: 'Modules requiring activation',
+      count: 0,
+      loading: true,
+    },
+  ]);
   const [modules, setModules] = useState([]);
   const [modulesLoading, setModulesLoading] = useState(false);
   const [aircraftWithRid, setAircraftWithRid] = useState({}); // Map of aircraft_id -> {rid_id, module_esn}
@@ -492,6 +522,18 @@ export function LandingPage({
       }
     }
   }, [collectionName]);
+
+  // Fetch status indicators on mount and when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchStatusIndicators();
+      // Refresh status indicators every 60 seconds
+      const interval = setInterval(() => {
+        fetchStatusIndicators();
+      }, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [isAuthenticated, fetchStatusIndicators]);
 
   const fetchDashboardStats = async () => {
     try {
@@ -574,33 +616,121 @@ export function LandingPage({
     }
   }
 
-  // Calculate status indicators (mock data for now)
-  const statusIndicators = [
-    {
-      type: 'warning',
-      icon: <WarningIcon />,
-      message: '3 Operators pending approval',
-      count: 3,
-    },
-    {
-      type: 'info',
-      icon: <SettingsIcon />,
-      message: '5 Aircraft needing maintenance updates',
-      count: 5,
-    },
-    {
-      type: 'warning',
-      icon: <PersonIcon />,
-      message: '2 Pilots with expiring certifications',
-      count: 2,
-    },
-    {
-      type: 'error',
-      icon: <WifiOffIcon />,
-      message: '1 Module requiring activation',
-      count: 1,
-    },
-  ];
+  // Fetch status indicators data
+  const fetchStatusIndicators = React.useCallback(async () => {
+    try {
+      setStatusIndicators(prev => prev.map(ind => ({ ...ind, loading: true })));
+
+      // Fetch all data in parallel
+      const [operatorsData, aircraftData, pilotsData, ridModulesData] = await Promise.all([
+        apiService.getOperators().catch(() => []),
+        apiService.getAircraft().catch(() => []),
+        apiService.getPilots().catch(() => []),
+        apiService.getRidModules().catch(() => []),
+      ]);
+
+      const operators = Array.isArray(operatorsData) ? operatorsData : (operatorsData?.results || []);
+      const aircraft = Array.isArray(aircraftData) ? aircraftData : (aircraftData?.results || []);
+      const pilots = Array.isArray(pilotsData) ? pilotsData : (pilotsData?.results || []);
+      const ridModules = Array.isArray(ridModulesData) ? ridModulesData : (ridModulesData?.results || []);
+
+      // Calculate counts
+      // 1. Operators pending approval (check for approval_status, status === 'pending', or is_approved === false)
+      const pendingOperators = operators.filter(op => {
+        if (op.approval_status === 'pending' || op.approval_status === 'Pending') return true;
+        if (op.status === 'pending' || op.status === 'Pending') return true;
+        if (op.is_approved === false || op.is_approved === 0) return true;
+        return false;
+      }).length;
+
+      // 2. Aircraft needing maintenance (check for maintenance_due, last_maintenance, or maintenance_status)
+      const now = new Date();
+      const maintenanceThreshold = new Date();
+      maintenanceThreshold.setMonth(maintenanceThreshold.getMonth() + 1); // 1 month from now
+      
+      const aircraftNeedingMaintenance = aircraft.filter(ac => {
+        // Check if maintenance is due
+        if (ac.maintenance_due) {
+          const dueDate = new Date(ac.maintenance_due);
+          return dueDate <= maintenanceThreshold;
+        }
+        // Check last maintenance date (if older than 12 months, needs maintenance)
+        if (ac.last_maintenance) {
+          const lastMaintenance = new Date(ac.last_maintenance);
+          const monthsSinceMaintenance = (now - lastMaintenance) / (1000 * 60 * 60 * 24 * 30);
+          return monthsSinceMaintenance >= 12;
+        }
+        // Check maintenance_status
+        if (ac.maintenance_status === 'due' || ac.maintenance_status === 'overdue') return true;
+        return false;
+      }).length;
+
+      // 3. Pilots with expiring certifications (check certification_expiry, license_expiry, etc.)
+      const pilotsExpiringCert = pilots.filter(pilot => {
+        const expiryFields = [
+          pilot.certification_expiry,
+          pilot.license_expiry,
+          pilot.cert_expiry,
+          pilot.license_expiration,
+        ];
+        
+        for (const expiryDate of expiryFields) {
+          if (expiryDate) {
+            const expiry = new Date(expiryDate);
+            const daysUntilExpiry = (expiry - now) / (1000 * 60 * 60 * 24);
+            // Expiring within 90 days
+            if (daysUntilExpiry > 0 && daysUntilExpiry <= 90) return true;
+          }
+        }
+        return false;
+      }).length;
+
+      // 4. Modules requiring activation (modules without RID ID or inactive status)
+      const modulesNeedingActivation = ridModules.filter(module => {
+        // Module needs activation if it has no RID ID or status is not active
+        if (!module.rid_id || module.rid_id === '') return true;
+        if (module.status === 'inactive' || module.status === 'pending') return true;
+        if (module.activation_status === 'pending' || !module.activation_status) return true;
+        return false;
+      }).length;
+
+      // Update status indicators with calculated counts
+      setStatusIndicators([
+        {
+          type: 'warning',
+          icon: <WarningIcon />,
+          message: `${pendingOperators} Operator${pendingOperators !== 1 ? 's' : ''} pending approval`,
+          count: pendingOperators,
+          loading: false,
+        },
+        {
+          type: 'info',
+          icon: <SettingsIcon />,
+          message: `${aircraftNeedingMaintenance} Aircraft needing maintenance update${aircraftNeedingMaintenance !== 1 ? 's' : ''}`,
+          count: aircraftNeedingMaintenance,
+          loading: false,
+        },
+        {
+          type: 'warning',
+          icon: <PersonIcon />,
+          message: `${pilotsExpiringCert} Pilot${pilotsExpiringCert !== 1 ? 's' : ''} with expiring certification${pilotsExpiringCert !== 1 ? 's' : ''}`,
+          count: pilotsExpiringCert,
+          loading: false,
+        },
+        {
+          type: 'error',
+          icon: <WifiOffIcon />,
+          message: `${modulesNeedingActivation} Module${modulesNeedingActivation !== 1 ? 's' : ''} requiring activation`,
+          count: modulesNeedingActivation,
+          loading: false,
+        },
+      ]);
+    } catch (error) {
+      console.error('Error fetching status indicators:', error);
+      // Set all to 0 on error
+      setStatusIndicators(prev => prev.map(ind => ({ ...ind, count: 0, loading: false })));
+    }
+  }, []);
 
   const filteredModules = modules.filter(module => {
     if (!moduleFilter) return true;
@@ -861,14 +991,20 @@ export function LandingPage({
                         <Grid item xs={12} sm={6} key={index}>
                           <Box className={`${classes.statusIndicator} ${indicator.type}`}>
                             {indicator.icon}
-                            <Typography variant="body2" style={{ marginLeft: 8 }}>
-                              {indicator.message}
+                            <Typography variant="body2" style={{ flexGrow: 1, marginLeft: 8 }}>
+                              {indicator.loading ? 'Loading...' : indicator.message}
                             </Typography>
-                            <Badge
-                              badgeContent={indicator.count}
-                              color="error"
-                              style={{ marginLeft: 'auto' }}
-                            />
+                            {indicator.loading ? (
+                              <CircularProgress size={20} style={{ marginLeft: 'auto' }} />
+                            ) : (
+                              indicator.count > 0 && (
+                                <Badge
+                                  badgeContent={indicator.count}
+                                  color="error"
+                                  style={{ marginLeft: 'auto' }}
+                                />
+                              )
+                            )}
                           </Box>
                         </Grid>
                       ))}

@@ -121,10 +121,10 @@ module.exports = options => ({
     // drop any unreachable code.
     new webpack.EnvironmentPlugin({
       NODE_ENV: 'development',
-      // Explicitly expose REACT_APP_ variables
-      REACT_APP_REGISTRATION_API_URL: process.env.REACT_APP_REGISTRATION_API_URL,
-      REACT_APP_API_VERSION: process.env.REACT_APP_API_VERSION,
-      REACT_APP_DEBUG_MODE: process.env.REACT_APP_DEBUG_MODE,
+      // Explicitly expose REACT_APP_ variables with defaults
+      REACT_APP_REGISTRATION_API_URL: process.env.REACT_APP_REGISTRATION_API_URL || 'https://register-ku.duckdns.org',
+      REACT_APP_API_VERSION: process.env.REACT_APP_API_VERSION || 'v1',
+      REACT_APP_DEBUG_MODE: process.env.REACT_APP_DEBUG_MODE || 'false',
     }),
   ]),
   resolve: {

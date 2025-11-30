@@ -206,6 +206,24 @@ export const getPilots = () => apiRequest('pilots');
 export const getContacts = () => apiRequest('contacts');
 
 /**
+ * Get all RID modules
+ * @returns {Promise} Promise that resolves with the response data (array or paginated result)
+ */
+export const getRidModules = async () => {
+  try {
+    const result = await apiRequest('rid-modules');
+    // Handle paginated responses
+    return Array.isArray(result) ? result : result?.results || [];
+  } catch (error) {
+    // If endpoint doesn't exist, return empty array
+    if (error.message.includes('404') || error.message.includes('Not found')) {
+      return [];
+    }
+    throw error;
+  }
+};
+
+/**
  * Get operator details by UUID
  * @param {string} operatorUuid - Operator UUID
  * @returns {Promise} Promise that resolves with the operator details
@@ -349,4 +367,5 @@ export default {
   getRidModuleByEsn,
   updateRidModule,
   updateRidModuleRidId,
+  getRidModules,
 };
