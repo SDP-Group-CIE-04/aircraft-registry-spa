@@ -4,21 +4,22 @@
  */
 
 const isDevelopment = process.env.NODE_ENV === 'development';
+const isDebugMode = process.env.REACT_APP_DEBUG_MODE === 'true' || process.env.REACT_APP_DEBUG_MODE === '1';
 
 /**
- * Log debug messages (only in development)
+ * Log debug messages (only in development or when REACT_APP_DEBUG_MODE is enabled)
  */
 export const debug = (...args) => {
-  if (isDevelopment) {
+  if (isDevelopment || isDebugMode) {
     console.log('[DEBUG]', ...args);
   }
 };
 
 /**
- * Log info messages (only in development)
+ * Log info messages (only in development or when REACT_APP_DEBUG_MODE is enabled)
  */
 export const info = (...args) => {
-  if (isDevelopment) {
+  if (isDevelopment || isDebugMode) {
     console.info('[INFO]', ...args);
   }
 };

@@ -242,33 +242,104 @@ class Serial {
 
     const command = `BASIC_SET ${pairs.join('|')}\n`;
 
-    return this.executeCommand(
+    const response = await this.executeCommand(
       command,
       (buffer, resolve, reject) => {
         const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
         const trimmed = text.trim();
 
-        // Check for success indicators
+        // Check for success indicators - wait for complete response
+        // The firmware sends either "[SUCCESS] Basic activation stored." or "[INFO] BASIC_SET processed."
         const upperText = trimmed.toUpperCase();
         if (
-          upperText.includes('SUCCESS') ||
           upperText.includes('[SUCCESS]') ||
+          upperText.includes('[INFO]') ||
           upperText.includes('STORED') ||
-          upperText.includes('[INFO]')
+          upperText.includes('PROCESSED')
         ) {
+          // We have a complete response from the firmware
           resolve(trimmed);
           return;
         }
 
-        // If we have some response, return it (even if not explicitly "SUCCESS")
-        if (trimmed.length > 0) {
+        // If we have some response but it doesn't contain the expected markers,
+        // it might be incomplete (e.g., just "[INFO" without the rest)
+        if (trimmed.length > 0 && (trimmed.includes('[') || trimmed.includes('INFO') || trimmed.includes('SUCCESS'))) {
+          // Might be partial, wait for more
+          reject(new NotEnoughDataError('Waiting for complete response'));
+        } else if (trimmed.length > 0) {
+          // Some other response, accept it
           resolve(trimmed);
         } else {
           // Wait for more data
           reject(new NotEnoughDataError('Waiting for response'));
         }
       },
-      1200, // timeout in milliseconds
+      2000, // Increased timeout to 2 seconds for EEPROM commit
+    );
+
+    // Add a small delay after BASIC_SET to ensure EEPROM commit completes
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    return response;
+  }
+
+  /**
+   * Send READ_EEPROM command and wait for response
+   * @returns {Promise<string>} ESP32 EEPROM dump text
+   */
+  async readEeprom() {
+    return this.executeCommand(
+      'READ_EEPROM\n',
+      (buffer, resolve, reject) => {
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+        const trimmed = text.trim();
+
+        // READ_EEPROM returns a formatted dump:
+        // [EEPROM] Dump:
+        // field_name_1 : value
+        // ...
+        // field_name_10 : value
+        // Registered : YES/NO/TEMPORARY/PERMANENT
+        
+        // Must have the header
+        if (!trimmed.includes('[EEPROM] Dump:')) {
+          if (trimmed.length > 0) {
+            reject(new NotEnoughDataError('Waiting for EEPROM dump header'));
+          } else {
+            reject(new NotEnoughDataError('Waiting for EEPROM response'));
+          }
+          return;
+        }
+
+        // Must have the "Registered :" line which comes at the very end
+        const hasStatusLine = trimmed.includes('Registered :');
+        
+        // Count field lines - should have 10 fields
+        const lines = trimmed.split('\n');
+        const fieldLines = lines.filter(line => 
+          line.includes(' : ') && 
+          !line.includes('[EEPROM]') && 
+          !line.includes('Registered :')
+        );
+
+        // We need the complete dump: header + 10 fields + status line
+        if (hasStatusLine && fieldLines.length >= 10) {
+          // Complete dump received
+          resolve(trimmed);
+          return;
+        }
+
+        // If we have the status line but fewer fields, might be incomplete
+        // If we have many fields but no status line, still waiting
+        if (trimmed.length > 50) {
+          // We have substantial data, but might be incomplete
+          reject(new NotEnoughDataError('Waiting for complete EEPROM dump (need all fields and status line)'));
+        } else {
+          reject(new NotEnoughDataError('Waiting for EEPROM response'));
+        }
+      },
+      5000, // Increased timeout to 5 seconds for full EEPROM dump
     );
   }
 

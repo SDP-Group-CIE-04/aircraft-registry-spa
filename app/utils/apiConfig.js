@@ -63,3 +63,14 @@ export const removeJwtToken = () => {
   localStorage.removeItem('token');
 };
 
+/**
+ * Check if debug features should be enabled
+ * Controlled by REACT_APP_DEBUG_MODE environment variable
+ * Set to 'true' or '1' to enable debug features (console logs, READ EEPROM button, etc.)
+ * @returns {boolean} True if debug mode is enabled
+ */
+export const isDebugModeEnabled = () => {
+  const debugMode = process.env.REACT_APP_DEBUG_MODE;
+  return debugMode === 'true' || debugMode === '1' || debugMode === true;
+};
+

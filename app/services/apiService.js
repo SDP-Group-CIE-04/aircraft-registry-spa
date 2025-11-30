@@ -47,6 +47,20 @@ const apiRequest = async (endpoint, method = 'GET', data = null) => {
     body: data ? JSON.stringify(data) : undefined,
   };
 
+  // Check if debug mode is enabled (used for conditional logging)
+  const isDebugMode = process.env.REACT_APP_DEBUG_MODE === 'true' || process.env.REACT_APP_DEBUG_MODE === '1';
+
+  // Log request details for PATCH requests (especially for RID module updates)
+  // Only log if debug mode is enabled
+  if (isDebugMode && method === 'PATCH' && data && endpoint.includes('rid-modules')) {
+    console.log('[API] PATCH request to update RID module:', {
+      url,
+      endpoint,
+      data,
+      body: JSON.stringify(data, null, 2),
+    });
+  }
+
   try {
     const response = await fetch(url, options);
 
@@ -95,7 +109,19 @@ const apiRequest = async (endpoint, method = 'GET', data = null) => {
     }
 
     // Parse successful response
-    return await response.json();
+    const responseData = await response.json();
+    
+    // Log response details for PATCH requests (especially for RID module updates)
+    // Only log if debug mode is enabled
+    if (isDebugMode && method === 'PATCH' && endpoint.includes('rid-modules')) {
+      console.log('[API] PATCH response from RID module update:', {
+        status: response.status,
+        data: responseData,
+        stringified: JSON.stringify(responseData, null, 2),
+      });
+    }
+    
+    return responseData;
   } catch (error) {
     // Re-throw with more context if it's a network error
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
@@ -261,6 +287,15 @@ export const updateRidModule = (moduleId, updateData) =>
   apiRequest(`rid-modules/${moduleId}`, 'PATCH', updateData);
 
 /**
+ * Update a RID module's RID ID
+ * @param {string} moduleId - RID module UUID
+ * @param {string} ridId - New RID ID (UUID v4)
+ * @returns {Promise} Promise that resolves with the updated RID module data
+ */
+export const updateRidModuleRidId = (moduleId, ridId) =>
+  apiRequest(`rid-modules/${moduleId}/rid-id`, 'PATCH', { rid_id: ridId });
+
+/**
  * Generate a RID ID as a UUID
  * Format: e0c8a7f2-d6f0-4f33-a101-7b5b93da565f
  * @param {string} operatorId - Operator UUID
@@ -313,4 +348,5 @@ export default {
   createRidModule,
   getRidModuleByEsn,
   updateRidModule,
+  updateRidModuleRidId,
 };

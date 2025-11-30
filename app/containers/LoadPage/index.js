@@ -27,6 +27,7 @@ import bgImage from '../../images/blurBg.jpg';
 import * as apiService from '../../services/apiService';
 import { loadSerialApi, isSerialApiSupported, Serial } from '../../utils/serial';
 import { debug, error, warn } from '../../utils/logger';
+import { isDebugModeEnabled } from '../../utils/apiConfig';
 
 const logError = error;
 
@@ -140,6 +141,7 @@ export default function LoadPage() {
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [error, setError] = useState(null);
   const [activating, setActivating] = useState(false);
+  const [readingEeprom, setReadingEeprom] = useState(false);
   const [notification, setNotification] = useState({
     open: false,
     message: '',
@@ -511,69 +513,157 @@ export default function LoadPage() {
 
       let deviceReply;
       let sentCommand;
+      let eepromDump = null;
       try {
-        // Send BASIC_SET command
+        // Send BASIC_SET command (serial_number is stored separately in backend, not in EEPROM)
         sentCommand = `BASIC_SET operator_id=${operatorId}|aircraft_id=${selectedAircraft.id}|rid_id=${ridId}`;
-        if (selectedDevice.esn) {
-          sentCommand += `|serial_number=${selectedDevice.esn}`;
-        }
         
         deviceReply = await serial.basicSet(
           operatorId,
           selectedAircraft.id,
           ridId,
-          selectedDevice.esn || null
+          null // Don't send serial_number to EEPROM (causes warning, stored in backend instead)
         );
+
+        // Verify data was written by reading EEPROM (only if debug mode is enabled)
+        if (isDebugModeEnabled()) {
+          debug('BASIC_SET completed, verifying with READ_EEPROM...');
+          try {
+            // Small delay before reading EEPROM to ensure commit is complete
+            await new Promise(resolve => setTimeout(resolve, 200));
+            eepromDump = await serial.readEeprom();
+            debug('EEPROM read successful');
+          } catch (eepromError) {
+            logError('Failed to read EEPROM for verification:', eepromError);
+            // Don't fail activation if EEPROM read fails, but log it
+            eepromDump = `[WARNING] Could not verify EEPROM: ${eepromError.message}`;
+          }
+        }
       } finally {
         await serial.close();
       }
 
-      const now = new Date().toLocaleString();
       const deviceKey = selectedDevice.portName || selectedDevice.esn || 'device';
+      // Store only the RID ID for simple confirmation display
       setDeviceConsole(prev => ({
         ...prev,
         [deviceKey]: {
-          cmd: sentCommand,
-          msg: deviceReply || 'OK',
-          time: now,
           ridId: ridId,
         },
       }));
 
       // Save or update RID module to backend (separate from aircraft record)
       try {
-        // Check if module already exists by ESN
-        const existingModule = await apiService.getRidModuleByEsn(selectedDevice.esn);
-        
-        const moduleData = {
+        debug('Attempting to save RID module to backend...');
+        debug('Module data:', {
           rid_id: ridId,
           operator: operatorId,
           aircraft: selectedAircraft.id,
           module_esn: selectedDevice.esn,
-          module_port: selectedDevice.port,
+        });
+
+        // Check if module already exists by ESN
+        let existingModule = null;
+        try {
+          existingModule = await apiService.getRidModuleByEsn(selectedDevice.esn);
+          if (existingModule) {
+            debug('Existing module found:', {
+              id: existingModule.id,
+              current_rid_id: existingModule.rid_id,
+              current_operator: existingModule.operator,
+              current_aircraft: existingModule.aircraft,
+            });
+          } else {
+            debug('No existing module found (will create new)');
+          }
+        } catch (checkError) {
+          // If getRidModuleByEsn fails (e.g., 404), that's fine - module doesn't exist
+          debug('Module not found by ESN (will create new):', checkError.message);
+          existingModule = null;
+        }
+        
+        const moduleData = {
+          rid_id: ridId, // Explicitly include rid_id for updates
+          operator: operatorId,
+          aircraft: selectedAircraft.id,
+          module_esn: selectedDevice.esn,
+          module_port: selectedDevice.portName || 'USB',
           module_type: 'ESP32-S3',
           status: 'active',
           activation_status: 'temporary', // Can be updated to 'permanent' if module is locked
         };
         
+        debug('Module data to send:', moduleData);
+        
         let savedModule;
         if (existingModule) {
-          // Update existing module
-          debug('Updating existing RID module:', existingModule.id);
-          savedModule = await apiService.updateRidModule(existingModule.id, moduleData);
-          debug('RID module updated in backend');
+          // Check if RID ID is changing
+          const ridIdChanged = existingModule.rid_id && existingModule.rid_id !== ridId;
+          
+          debug('Updating existing RID module:', {
+            moduleId: existingModule.id,
+            oldRidId: existingModule.rid_id,
+            newRidId: ridId,
+            ridIdChanged: ridIdChanged,
+          });
+          
+          if (ridIdChanged) {
+            // First, update the RID ID using the dedicated endpoint
+            debug('RID ID changed - updating via dedicated endpoint');
+            try {
+              savedModule = await apiService.updateRidModuleRidId(existingModule.id, ridId);
+              debug('RID ID updated successfully:', savedModule);
+            } catch (ridIdError) {
+              logError('Failed to update RID ID:', ridIdError);
+              throw new Error(`Failed to update RID ID: ${ridIdError.message}`);
+            }
+          }
+          
+          // Update other fields (operator, aircraft, etc.) via regular PATCH
+          // Remove rid_id from update data since we already updated it separately
+          const updateDataWithoutRidId = { ...moduleData };
+          delete updateDataWithoutRidId.rid_id;
+          
+          debug('Updating other module fields:', updateDataWithoutRidId);
+          savedModule = await apiService.updateRidModule(existingModule.id, updateDataWithoutRidId);
+          
+          debug('RID module update response:', {
+            returnedRidId: savedModule?.rid_id,
+            expectedRidId: ridId,
+            fullResponse: savedModule,
+          });
+          
+          // Verify the rid_id matches (should always match now)
+          if (savedModule && savedModule.rid_id !== ridId) {
+            console.warn('WARNING: RID ID mismatch after update!', {
+              expected: ridId,
+              received: savedModule.rid_id,
+            });
+            showNotification(
+              `Module updated but RID ID mismatch (expected: ${ridId}, got: ${savedModule.rid_id})`,
+              'warning'
+            );
+          } else {
+            showNotification('RID module updated in backend', 'success');
+          }
         } else {
           // Create new module
           debug('Creating new RID module');
           savedModule = await apiService.createRidModule(moduleData);
-          debug('RID module saved to backend');
+          debug('RID module saved to backend:', savedModule);
+          showNotification('RID module saved to backend', 'success');
         }
       } catch (backendError) {
         logError('Failed to save/update RID module to backend:', backendError);
-        // Don't fail the activation if backend save fails, but log it
+        console.error('Backend error details:', {
+          message: backendError.message,
+          response: backendError.response,
+          stack: backendError.stack,
+        });
+        // Show error notification
         showNotification(
-          `Module activated but failed to save RID module to backend: ${backendError.message}`,
-          'warning'
+          `Module activated but failed to save to backend: ${backendError.message || 'Unknown error'}`,
+          'error'
         );
       }
 
@@ -631,16 +721,66 @@ export default function LoadPage() {
     setOverrideDialog({ open: false, existingIds: null, pendingActivation: null });
   };
 
+  // Handle manual READ_EEPROM request
+  const handleReadEeprom = async () => {
+    if (!selectedDevice || !selectedDevice.port) {
+      showNotification('Please select a device first', 'error');
+      return;
+    }
+
+    setReadingEeprom(true);
+    setError(null);
+
+    try {
+      const serial = new Serial(selectedDevice.port);
+      await serial.open(115200);
+      
+      // Small delay to let port stabilize
+      await new Promise(resolve => setTimeout(resolve, 250));
+      
+      let eepromDump;
+      try {
+        eepromDump = await serial.readEeprom();
+        debug('EEPROM read successful');
+      } catch (eepromError) {
+        logError('Failed to read EEPROM:', eepromError);
+        throw new Error(`Failed to read EEPROM: ${eepromError.message}`);
+      } finally {
+        await serial.close();
+      }
+
+      const now = new Date().toLocaleString();
+      const deviceKey = selectedDevice.portName || selectedDevice.esn || 'device';
+      // Store EEPROM dump data (will be displayed if debug mode is enabled)
+      setDeviceConsole(prev => ({
+        ...prev,
+        [deviceKey]: {
+          ...prev[deviceKey],
+          cmd: 'READ_EEPROM',
+          msg: 'EEPROM dump retrieved',
+          time: now,
+          eepromDump: eepromDump,
+        },
+      }));
+
+      showNotification('EEPROM read successfully', 'success');
+    } catch (err) {
+      logError('Read EEPROM error:', err);
+      showNotification(err.message || 'Failed to read EEPROM', 'error');
+    } finally {
+      setReadingEeprom(false);
+    }
+  };
+
   const renderDeviceConsole = (device) => {
     const entry = deviceConsole[device.portName || 'device'];
     if (!entry) return null;
 
+    const showDebugDetails = isDebugModeEnabled() && (entry.cmd || entry.eepromDump);
+
     return (
       <Box mt={1.5}>
         <Divider style={{ marginBottom: 8 }} />
-        <Typography variant="subtitle2" gutterBottom>
-          Device Console
-        </Typography>
         {entry.ridId && (
           <Box mb={1.5} p={1.5} style={{ backgroundColor: '#e8f5e9', borderRadius: 4, border: '1px solid #4caf50' }}>
             <Typography variant="subtitle2" style={{ fontWeight: 600, color: '#2e7d32' }}>
@@ -651,19 +791,39 @@ export default function LoadPage() {
             </Typography>
           </Box>
         )}
-        <Box className={classes.consoleBox}>
-          <div>
-            <span className={classes.consoleLabel}>Sent:</span>
-            <span className={classes.consoleMuted}>{entry.time}</span>
-          </div>
-          <pre style={{ margin: '6px 0 10px' }}>
+        {showDebugDetails && (
+          <Box className={classes.consoleBox}>
+            {entry.cmd && (
+              <>
+                <div>
+                  <span className={classes.consoleLabel}>Sent:</span>
+                  <span className={classes.consoleMuted}>{entry.time || ''}</span>
+                </div>
+                <pre style={{ margin: '6px 0 10px' }}>
 {entry.cmd}
-          </pre>
-          <div className={classes.consoleLabel}>Response:</div>
-          <pre style={{ margin: '6px 0 0' }}>
-{entry.msg || '—'}
-          </pre>
-        </Box>
+                </pre>
+                {entry.msg && (
+                  <>
+                    <div className={classes.consoleLabel}>Response:</div>
+                    <pre style={{ margin: '6px 0 10px', whiteSpace: 'pre-wrap' }}>
+{entry.msg}
+                    </pre>
+                  </>
+                )}
+              </>
+            )}
+            {entry.eepromDump && (
+              <>
+                <div className={classes.consoleLabel} style={{ marginTop: entry.cmd ? '12px' : '0' }}>
+                  {entry.cmd === 'READ_EEPROM' ? 'READ_EEPROM:' : 'READ_EEPROM Verification:'}
+                </div>
+                <pre style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', maxHeight: '300px', overflowY: 'auto' }}>
+{entry.eepromDump}
+                </pre>
+              </>
+            )}
+          </Box>
+        )}
       </Box>
     );
   };
@@ -710,7 +870,7 @@ export default function LoadPage() {
           </CardContent>
 
           {isSelected && (
-            <CardActions>
+            <CardActions style={{ flexDirection: 'column', gap: '8px' }}>
               <Button
                 fullWidth
                 variant="contained"
@@ -719,10 +879,24 @@ export default function LoadPage() {
                   e.stopPropagation();
                   handleActivate();
                 }}
-                disabled={activating}
+                disabled={activating || readingEeprom}
               >
                 {activating ? <CircularProgress size={24} color="inherit" /> : 'Activate This Module'}
               </Button>
+              {isDebugModeEnabled() && (
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleReadEeprom();
+                  }}
+                  disabled={activating || readingEeprom}
+                  style={{ marginTop: '8px' }}
+                >
+                  {readingEeprom ? <CircularProgress size={24} /> : 'Read EEPROM'}
+                </Button>
+              )}
             </CardActions>
           )}
         </Card>

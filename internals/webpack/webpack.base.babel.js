@@ -124,6 +124,7 @@ module.exports = options => ({
       // Explicitly expose REACT_APP_ variables
       REACT_APP_REGISTRATION_API_URL: process.env.REACT_APP_REGISTRATION_API_URL,
       REACT_APP_API_VERSION: process.env.REACT_APP_API_VERSION,
+      REACT_APP_DEBUG_MODE: process.env.REACT_APP_DEBUG_MODE,
     }),
   ]),
   resolve: {
