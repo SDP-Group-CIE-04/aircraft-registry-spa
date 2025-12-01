@@ -46,6 +46,21 @@ class Serial {
     // Start reading data in the background
     this.running = true;
     this.startReader();
+    
+    // Clear any buffered data that might be in the queue
+    this.qp.clear();
+  }
+  
+  /**
+   * Clear/flush the serial buffer and command queue
+   * Useful when opening a port to discard any stale data
+   */
+  async flush() {
+    // Clear the queue processor buffer
+    this.qp.clear();
+    
+    // Give a small delay to let any pending reads complete
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
 
   /**
@@ -59,7 +74,9 @@ class Serial {
 
         if (done) {
           // Reader was cancelled
-          console.log('Reader done');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[Serial] Reader done - reader was cancelled');
+          }
           return;
         }
 
@@ -122,14 +139,30 @@ class Serial {
    */
   async executeCommand(command, responseHandler, timeout = READ_TIMEOUT) {
     const sendHandler = async () => {
+      if (process.env.NODE_ENV === 'development') {
+        const cmdStr = typeof command === 'string' ? command : new TextDecoder().decode(command);
+        console.log('[Serial] Executing command:', cmdStr.trim(), 'timeout:', timeout, 'ms');
+      }
       if (typeof command === 'string') {
         await this.writeBuffer(command);
       } else {
         await this.writeBuffer(command);
       }
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Serial] Command sent, waiting for response...');
+      }
     };
 
-    return this.qp.addCommand(sendHandler, responseHandler, timeout);
+    const promise = this.qp.addCommand(sendHandler, responseHandler, timeout);
+    
+    // Add timeout logging
+    if (process.env.NODE_ENV === 'development') {
+      promise.catch(err => {
+        console.error('[Serial] Command failed:', err.message, 'Command was:', typeof command === 'string' ? command.trim() : 'binary');
+      });
+    }
+    
+    return promise;
   }
 
   /**
@@ -137,13 +170,27 @@ class Serial {
    * @returns {Promise<{esn: string, status: string}>}
    */
   async getInfo() {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Serial] Sending GET_INFO command...');
+    }
+    
     return this.executeCommand(
       'GET_INFO\n',
       (buffer, resolve, reject) => {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Serial] GET_INFO response handler called with buffer length:', buffer.length);
+        }
         const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
         const trimmed = text.trim();
 
-        // Try to find JSON in the response
+        // Log raw response for debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Serial] GET_INFO raw response (length:', trimmed.length, '):', trimmed);
+          console.log('[Serial] GET_INFO raw bytes:', Array.from(new TextEncoder().encode(trimmed)).map(b => '0x' + b.toString(16)).join(' '));
+        }
+
+        // Try to find JSON in the response (handle cases where there's extra text before/after)
+        // Look for JSON that might be on a single line or multiple lines
         const jsonStart = trimmed.indexOf('{');
         const jsonEnd = trimmed.lastIndexOf('}') + 1;
 
@@ -151,12 +198,26 @@ class Serial {
           try {
             const jsonStr = trimmed.substring(jsonStart, jsonEnd);
             const data = JSON.parse(jsonStr);
-            const esn = data.esn || 'UNKNOWN';
+            const esn = data.esn || data.ESN || 'UNKNOWN';
             const status = data.status || 'ready';
+            
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[Serial] GET_INFO parsed successfully:', { esn, status, fullData: data });
+            }
+            
+            if (esn === 'UNKNOWN') {
+              if (process.env.NODE_ENV === 'development') {
+                console.warn('[Serial] GET_INFO ESN is UNKNOWN, full response:', JSON.stringify(data));
+              }
+            }
+            
             resolve({ esn, status });
             return;
           } catch (e) {
             // Not valid JSON yet, might need more data
+            if (process.env.NODE_ENV === 'development') {
+              console.warn('[Serial] GET_INFO JSON parse error:', e.message, 'Raw:', trimmed, 'JSON substring:', trimmed.substring(jsonStart, jsonEnd));
+            }
             reject(new NotEnoughDataError('Waiting for complete JSON response'));
             return;
           }
@@ -164,12 +225,18 @@ class Serial {
 
         // If we have some data but no JSON yet, wait for more
         if (trimmed.length > 0) {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[Serial] GET_INFO waiting for JSON, current data:', trimmed.substring(0, 200));
+          }
           reject(new NotEnoughDataError('Waiting for JSON response'));
         } else {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[Serial] GET_INFO no response from device (empty buffer)');
+          }
           reject(new Error('No response from device'));
         }
       },
-      700, // timeout in milliseconds
+      2000, // Increased timeout to 2000ms for slower devices
     );
   }
 
@@ -349,16 +416,33 @@ class Serial {
   async close() {
     this.running = false;
 
+    // Wait a bit for any pending commands to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     // Cancel and release the reader
     if (this.reader) {
-      this.reader.cancel();
-      await this.reader.releaseLock();
+      try {
+        this.reader.cancel();
+        await this.reader.releaseLock();
+      } catch (e) {
+        // Reader might already be released
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Serial] Error releasing reader:', e);
+        }
+      }
       this.reader = null;
     }
 
     // Release the writer
     if (this.writer) {
-      await this.writer.releaseLock();
+      try {
+        await this.writer.releaseLock();
+      } catch (e) {
+        // Writer might already be released
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Serial] Error releasing writer:', e);
+        }
+      }
       this.writer = null;
     }
 
@@ -384,10 +468,12 @@ class Serial {
   }
 
   /**
-   * Get port information
+   * Get port information (USB port details, not serial response)
+   * NOTE: This method was conflicting with async getInfo() that sends GET_INFO command
+   * Use getPortInfo() instead to avoid confusion
    * @returns {Object} Port info with usbVendorId, usbProductId
    */
-  getInfo() {
+  getPortInfo() {
     if (this.port && this.port.getInfo) {
       return this.port.getInfo();
     }

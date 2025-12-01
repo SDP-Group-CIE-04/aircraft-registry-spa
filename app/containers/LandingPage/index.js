@@ -11,7 +11,7 @@ import { Helmet } from 'react-helmet';
 import { connect } from 'react-redux';
 import { compose } from 'redux';
 import { createStructuredSelector } from 'reselect';
-import { makeStyles, fade } from '@material-ui/core/styles';
+import { makeStyles, alpha } from '@material-ui/core/styles';
 import CircularProgress from '@material-ui/core/CircularProgress';
 import {
   Button,
@@ -128,7 +128,7 @@ const useStyles = makeStyles(theme => ({
     borderRadius: theme.shape.borderRadius,
     transition: 'background-color 0.3s',
     '&:hover': {
-      backgroundColor: fade(theme.palette.primary.main, 0.1),
+      backgroundColor: alpha(theme.palette.primary.main, 0.1),
     },
   },
   avatar: {
@@ -341,21 +341,21 @@ const useStyles = makeStyles(theme => ({
       boxShadow: theme.shadows[8],
     },
     '&.primary': {
-      backgroundColor: fade(theme.palette.primary.main, 0.1),
+      backgroundColor: alpha(theme.palette.primary.main, 0.1),
       '&:hover': {
-        backgroundColor: fade(theme.palette.primary.main, 0.15),
+        backgroundColor: alpha(theme.palette.primary.main, 0.15),
       },
     },
     '&.success': {
-      backgroundColor: fade('#4caf50', 0.1),
+      backgroundColor: alpha('#4caf50', 0.1),
       '&:hover': {
-        backgroundColor: fade('#4caf50', 0.15),
+        backgroundColor: alpha('#4caf50', 0.15),
       },
     },
     '&.warning': {
-      backgroundColor: fade('#ff9800', 0.1),
+      backgroundColor: alpha('#ff9800', 0.1),
       '&:hover': {
-        backgroundColor: fade('#ff9800', 0.15),
+        backgroundColor: alpha('#ff9800', 0.15),
       },
     },
   },
@@ -502,7 +502,7 @@ export function LandingPage({
       fetchModules();
       fetchAircraftWithRid();
     }
-  }, [isAuthenticated, fetchAircraftWithRid]);
+  }, [isAuthenticated, fetchAircraftWithRid, fetchDashboardStats, fetchModules]);
 
   // Refresh modules periodically
   useEffect(() => {
@@ -535,7 +535,7 @@ export function LandingPage({
     }
   }, [isAuthenticated, fetchStatusIndicators]);
 
-  const fetchDashboardStats = async () => {
+  const fetchDashboardStats = React.useCallback(async () => {
     try {
       setDashboardStats(prev => ({ ...prev, loading: true }));
       const [operators, aircraft, pilots] = await Promise.all([
@@ -567,9 +567,9 @@ export function LandingPage({
       // Error fetching dashboard stats - silently fail
       setDashboardStats(prev => ({ ...prev, loading: false }));
     }
-  };
+  }, []);
 
-  const fetchModules = async () => {
+  const fetchModules = React.useCallback(async () => {
     try {
       setModulesLoading(true);
       const response = await fetch(`${DISCOVERY_SERVICE_URL}/devices`);
@@ -592,7 +592,7 @@ export function LandingPage({
     } finally {
       setModulesLoading(false);
     }
-  };
+  }, [fetchAircraftWithRid]);
 
   function handleMenu(event) {
     setAnchorEl(event.currentTarget);
@@ -862,7 +862,7 @@ export function LandingPage({
                           <BusinessIcon
                             style={{ fontSize: 40, color: '#2196F3', marginBottom: 8 }}
                           />
-                          <Typography className={classes.statValue}>
+                          <Typography className={classes.statValue} component="div">
                             {dashboardStats.loading ? (
                               <CircularProgress size={24} />
                             ) : (
@@ -894,7 +894,7 @@ export function LandingPage({
                           <FlightTakeoffIcon
                             style={{ fontSize: 40, color: '#4caf50', marginBottom: 8 }}
                           />
-                          <Typography className={classes.statValue}>
+                          <Typography className={classes.statValue} component="div">
                             {dashboardStats.loading ? (
                               <CircularProgress size={24} />
                             ) : (
@@ -926,7 +926,7 @@ export function LandingPage({
                           <PersonIcon
                             style={{ fontSize: 40, color: '#9c27b0', marginBottom: 8 }}
                           />
-                          <Typography className={classes.statValue}>
+                          <Typography className={classes.statValue} component="div">
                             {dashboardStats.loading ? (
                               <CircularProgress size={24} />
                             ) : (
@@ -953,7 +953,7 @@ export function LandingPage({
                           <WifiIcon
                             style={{ fontSize: 40, color: '#ff9800', marginBottom: 8 }}
                           />
-                          <Typography className={classes.statValue}>
+                          <Typography className={classes.statValue} component="div">
                             {dashboardStats.loading ? (
                               <CircularProgress size={24} />
                             ) : (

@@ -261,13 +261,51 @@ export default function LoadPage() {
           const serial = new Serial(port);
           await serial.open(115200);
           
-          // Small delay to let port stabilize
-          await new Promise(resolve => setTimeout(resolve, 250));
+          // Flush any buffered data from the port
+          await serial.flush();
+          
+          // Additional delay to let port stabilize
+          await new Promise(resolve => setTimeout(resolve, 500));
           
           try {
-            const info = await serial.getInfo();
+            // Try to get info with retry logic
+            let info;
+            let retries = 2;
+            let lastError;
+            
+            while (retries >= 0) {
+              try {
+                debug(`Attempting GET_INFO (${3 - retries}/3)...`);
+                const result = await serial.getInfo();
+                debug('GET_INFO succeeded, result:', result);
+                debug('GET_INFO result has esn?', 'esn' in result, 'has status?', 'status' in result);
+                if (!result || typeof result !== 'object' || !('esn' in result)) {
+                  console.error('[LoadPage] GET_INFO returned unexpected format:', result);
+                  throw new Error(`GET_INFO returned invalid format: ${JSON.stringify(result)}`);
+                }
+                info = result;
+                break; // Success, exit retry loop
+              } catch (err) {
+                lastError = err;
+                debug(`GET_INFO failed (attempt ${3 - retries}/3):`, err.message);
+                retries--;
+                if (retries >= 0) {
+                  debug(`GET_INFO failed, retrying... (${retries} retries left)`);
+                  // Wait a bit before retry
+                  await new Promise(resolve => setTimeout(resolve, 300));
+                }
+              }
+            }
+            
+            if (!info) {
+              throw lastError || new Error('Failed to get device info after retries');
+            }
+            
             const esn = info.esn || 'UNKNOWN';
             const status = info.status || 'ready';
+
+            // Wait a bit before closing to ensure all data is processed
+            await new Promise(resolve => setTimeout(resolve, 200));
 
             deviceList.push({
               name: `RSAS-Module-${esn}`,
@@ -285,7 +323,18 @@ export default function LoadPage() {
               last_seen: Date.now() / 1000,
             });
           } catch (infoError) {
-            warn(`Failed to get info from port:`, infoError);
+            warn(`Failed to get info from port ${portInfo.usbVendorId}:${portInfo.usbProductId}:`, infoError);
+            if (isDebugModeEnabled()) {
+              console.error('[LoadPage] GET_INFO error details:', {
+                error: infoError,
+                message: infoError?.message,
+                stack: infoError?.stack,
+                portInfo: {
+                  vendorId: portInfo.usbVendorId,
+                  productId: portInfo.usbProductId,
+                },
+              });
+            }
             // Still add device with unknown info
             deviceList.push({
               name: 'RSAS-Module-Unknown',
@@ -303,7 +352,16 @@ export default function LoadPage() {
               last_seen: Date.now() / 1000,
             });
           } finally {
-            await serial.close();
+            // Give extra time for any pending operations to complete
+            await new Promise(resolve => setTimeout(resolve, 300));
+            try {
+              await serial.close();
+            } catch (closeError) {
+              // Ignore close errors - port might already be closed
+              if (isDebugModeEnabled()) {
+                console.warn('[LoadPage] Error closing serial port:', closeError);
+              }
+            }
           }
         } catch (portError) {
           warn(`Error processing port:`, portError);

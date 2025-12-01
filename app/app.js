@@ -19,7 +19,7 @@ import 'sanitize.css/sanitize.css';
 
 // Material UI
 import { ThemeProvider } from '@material-ui/styles';
-import { createMuiTheme } from '@material-ui/core/styles';
+import { createTheme } from '@material-ui/core/styles';
 import { orange, blue } from '@material-ui/core/colors';
 
 // Import Language Provider
@@ -53,7 +53,7 @@ const initialState = {};
 const store = configureStore(initialState, history);
 const MOUNT_NODE = document.getElementById('app');
 
-const theme = createMuiTheme({
+const theme = createTheme({
   palette: {
     primary: blue,
     secondary: orange,
